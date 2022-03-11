@@ -95,7 +95,44 @@ exit
 
 ```
 
+Prepare dataset for dataviz
+
+```bash
+ls *R2.P.qtrim.fq.gz | sort > R2.tmp && ls *R1.P.qtrim.fq.gz | sort > R1.tmp && \
+cut -d "_" -f1 R1.tmp > factors.tmp && \
+cut -d "_" -f1 R1.tmp > codes.tmp && \
+paste factors.tmp codes.tmp R1.tmp R2.tmp | awk '{gsub(/\-/,"_",$2); \
+print $1,$2,$3,$4}' | column -t > samples.file && rm *tmp
+```
+
+```bash
+
+grep 'Input Read Pairs' slurm-171018.err | awk '{print $4, $7, $12, $17, $20}' > trimmomatic.log
+
+#. or
+
+
+grep phred33 slurm-171018.err | awk '{gsub(/\_/," ", $2); print $2}' | awk '{print $1}' > trimmomatic_id.log
+
+paste trimmomatic_id.log trimmomatic.log > trimmomatic.csv
+
+# Download and enter to Rstudios
+
+
+```
+
+```R
+c("ID",	"Input Read Pairs",	"Both Surviving",	"Forward Only",	"Reverse Only",	"Dropped")
+
+```
 
 
 
+Test genome-guide assembly
+
+```bash
+# https://nbisweden.github.io/workshop-RNAseq/1906/lab_assembly.html#22_hisat2
+
+hisat2 --phred33 --rna-strandness RF --novel-splicesite-outfile hisat2/splicesite.txt -S hisat2/accepted_hits.sam -p 5 -x index/chr4_index -1 trimmomatic/ERR305399.left_paired.fastq.gz -2 trimmomatic/ERR305399.right_paired.fastq.gz
+```
 
