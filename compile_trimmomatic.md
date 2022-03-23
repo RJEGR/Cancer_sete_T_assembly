@@ -1,4 +1,8 @@
-1) Make a quick view of the meta data:
+[TOC]
+
+
+
+### 1) Make a quick view of the meta data:
 
 ```bash
 ls *R2* | grep fastq | sort > R2.tmp && ls *R1* | grep fastq | sort > R1.tmp && \
@@ -31,11 +35,9 @@ done
 
 ```
 
-
-
 Use gedit or other text editor to make file changes
 
-2) Run Trimmomatic
+### 2) Run Trimmomatic
 
 ```bash
 #SBATCH --error=slurm-%j.err
@@ -114,6 +116,24 @@ exit
 
 ```
 
+2.2) Fastp tool (as alternative to trimmomatic)
+
+```bash
+# A tool designed to provide fast all-in-one preprocessing for FastQ files
+# https://github.com/OpenGene/fastp#fastp
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/
+
+export PATH=$TOOL:$PATH
+
+# for paired end data (gzip compressed)
+fastp -i P1283_S30_L001_R1.P.qtrim.fq -I P1283_S30_L001_R2.P.qtrim.fq -o out.R1.fq.gz -O out.R2.fq.gz
+```
+
+Then , report in multiqc document the result
+
+https://multiqc.info/docs/
+
 Prepare dataset for dataviz
 
 ```bash
@@ -145,9 +165,16 @@ c("ID",	"Input Read Pairs",	"Both Surviving",	"Forward Only",	"Reverse Only",	"D
 
 ```
 
+### 3) Test genome-guide assembly (hisat2)
 
+3.1) Concatenate forward and reverse reads in a single batch
 
-Test genome-guide assembly (hisat2)
+```bash
+cat *.R1.P.qtrim.fq > reads_f.fq
+cat *.R2.P.qtrim.fq > reads_r.fq
+```
+
+3.2) Build the hg (v 38) index (For human genome take 4.5 Gb of memory, > 2 hours)
 
 ```bash
 # https://nbisweden.github.io/workshop-RNAseq/1906/lab_assembly.html#22_hisat2
@@ -157,37 +184,132 @@ TOOL=/LUSTRE/apps/bioinformatica/hisat2-2.1.0/
 
 export PATH=$TOOL:$PATH
 
-# Build the hg (v 38) index
+# Build the hg (v 38) index (Already done, 22/03/22)
 # https://www.ncbi.nlm.nih.gov/genome/51?genome_assembly_id=582967
+
 hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hg38.fa
+
 hg_name=`basename ${hg%.fa}`
 
-hisat2-build -p $SLURM_NPROCS $hg ${hg%.fa}
+# hisat2-build -p $SLURM_NPROCS $hg ${hg%.fa}
+
+# ll -h /LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/*ht2
 
 # Run on paired-end reads
 
-hisat2 --phred33 -p $SLURM_NPROCS -x $hg_name -1 reads_f.fq -2 reads_r.fq -S output.sam
+hisat2 --phred33 -p $SLURM_NPROCS -x ./hisat2-build/$hg_name -1 reads_f.fq -2 reads_r.fq -S output.sam
 
-hisat2 --phred33 --rna-strandness RF --novel-splicesite-outfile hisat2/splicesite.txt -S hisat2/accepted_hits.sam -p 5 -x index/chr4_index -1 trimmomatic/ERR305399.left_paired.fastq.gz -2 trimmomatic/ERR305399.right_paired.fastq.gz
+# test single at:
+## srun hisat2 --phred33 -p 24 -x ./hisat2-build/$hg_name -1 P1283_S30_L001_R1.P.qtrim.fq  -2 P1283_S30_L001_R2.P.qtrim.fq -S output.sam 2> hisat2.log &
+
+mkdir hisat2
+mv output.sam hisat2
+cd hisat2
+
+# convert from sam to bam as StringTie requiere the bam format to assemble the reads into a single transcript
+
+samtools view -bS -o output.bam output.sam
+
+samtools sort -o output.sorted.bam output.bam
+
 ```
 
-Fastp tool
-
-```bash
-# A tool designed to provide fast all-in-one preprocessing for FastQ files
-# https://github.com/OpenGene/fastp#fastp
-
-TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/
-
-export PATH=$TOOL:$PATH
-
-# for paired end data (gzip compressed)
-fastp -i P1283_S30_L001_R1.P.qtrim.fq -I P1283_S30_L001_R2.P.qtrim.fq -o out.R1.fq.gz -O out.R2.fq.gz
-```
-
-Then , report in multiqc document the result
+Integrate hisat to multiqc
 
 https://multiqc.info/docs/#hisat2
+
+### 4) StringTie
+
+https://ccb.jhu.edu/software/stringtie/
+
+```bash
+cd ..
+mkdir stringtie
+
+# run StringTie
+
+stringtie hisat2/accepted_hits.sorted.bam -o stringtie/transcripts.gtf
+
+
+```
+
+For the guided assembly results, you need first to extract the transcript sequences from the gtf transcript file :
+
+```bash
+# Option 1
+wget https://raw.githubusercontent.com/NBISweden/AGAT/bf48b0d7bc18ab204d5880545acc4b66c1ef13b7/bin/agat_sp_extract_sequences.pl .
+
+chmod +x agat_sp_extract_sequences.pl
+
+# Can't locate Clone.pm in @INC (you may need to install the Clone module)
+
+# Option 2
+
+# get the chosen AGAT container version
+singularity pull docker://quay.io/biocontainers/agat:0.8.0--pl5262hdfd78af_0 
+# run the container
+singularity run agat_0.8.0--pl5262hdfd78af_0.sif
+# 
+agat_convert_sp_gxf2gxf.pl --help
+```
+
+
+
+#### 4.1) Assembly quality
+
+```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=BUSCOpy
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 1
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 6-00:00:00
+
+module load python-2.7-anaconda
+
+fasta=$1
+out=${fasta%.fasta}
+
+BUSCO=/home/rgomez/bin/busco-master/scripts/
+export PATH=$BUSCO:$PATH
+
+eukaryota_odb9=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/oyster-rawdata/method_v2/ANNOTATE/BUSCOdb/eukaryota_odb9
+mammalia_odb9=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/oyster-rawdata/method_v2/ANNOTATE/BUSCOdb/mammalia_odb9
+bacteria_odb9=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/oyster-rawdata/method_v2/ANNOTATE/BUSCOdb/bacteria_odb9
+
+run_BUSCO.py -i $fasta -l $eukaryota_odb9 -m transcriptome -o ${out}_eukaryota_odb9 -c 24
+run_BUSCO.py -i $fasta -l $mammalia_odb9 -m transcriptome -o ${out}_mammalia_odb9 -c 24
+run_BUSCO.py -i $fasta -l $bacteria_odb9 -m transcriptome -o ${out}_bacteria_odb9 -c 24
+
+exit
+
+# https://busco.ezlab.org/busco_userguide.html#interpreting-the-results
+```
+
+#### 4.2)
+
+```bash
+
+```
+
+
+
+### 5) Annotation
+
+```bash
+
+```
+
+### 6) Quantification
+
+```bash
+
+```
+
+
 
 
 
