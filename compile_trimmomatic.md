@@ -289,7 +289,7 @@ exit
 # https://busco.ezlab.org/busco_userguide.html#interpreting-the-results
 ```
 
-#### 4.2)
+#### 4.2) Transrate
 
 ```bash
 
