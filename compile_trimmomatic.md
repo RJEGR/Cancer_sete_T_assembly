@@ -14,6 +14,25 @@ Columns 1 and 2 are used as factors between samples or experimental design)
 head samples.file
 ```
 
+Count the number of reads per lib
+
+```bash
+for file in $(ls *_L001_R1_001*gz | grep -e 'fastq' -e 'fq' -e 'gz')
+do
+withpath="${file}"
+filename=${withpath##*/}
+base="${filename%*_R*.fastq.gz}"
+#zcat ${base}_R1_001.fastq.gz | grep -c "^@" ;
+#zcat ${base}_R1.clipped.fastq.gz | grep -c "^@" ; 
+echo $base'
+done
+
+# | awk 'BEGIN { FS = "-" } ; { print $3"."$2 }
+
+```
+
+
+
 Use gedit or other text editor to make file changes
 
 2) Run Trimmomatic
@@ -98,7 +117,7 @@ exit
 Prepare dataset for dataviz
 
 ```bash
-ls *R2.P.qtrim.fq.gz | sort > R2.tmp && ls *R1.P.qtrim.fq.gz | sort > R1.tmp && \
+ls *R2.P.qtrim.fq | sort > R2.tmp && ls *R1.P.qtrim.fq | sort > R1.tmp && \
 cut -d "_" -f1 R1.tmp > factors.tmp && \
 cut -d "_" -f1 R1.tmp > codes.tmp && \
 paste factors.tmp codes.tmp R1.tmp R2.tmp | awk '{gsub(/\-/,"_",$2); \
@@ -128,11 +147,81 @@ c("ID",	"Input Read Pairs",	"Both Surviving",	"Forward Only",	"Reverse Only",	"D
 
 
 
-Test genome-guide assembly
+Test genome-guide assembly (hisat2)
 
 ```bash
 # https://nbisweden.github.io/workshop-RNAseq/1906/lab_assembly.html#22_hisat2
+# https://github.com/DaehwanKimLab/hisat2
+
+TOOL=/LUSTRE/apps/bioinformatica/hisat2-2.1.0/
+
+export PATH=$TOOL:$PATH
+
+# Build the hg (v 38) index
+# https://www.ncbi.nlm.nih.gov/genome/51?genome_assembly_id=582967
+hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hg38.fa
+hg_name=`basename ${hg%.fa}`
+
+hisat2-build -p $SLURM_NPROCS $hg ${hg%.fa}
+
+# Run on paired-end reads
+
+hisat2 --phred33 -p $SLURM_NPROCS -x $hg_name -1 reads_f.fq -2 reads_r.fq -S output.sam
 
 hisat2 --phred33 --rna-strandness RF --novel-splicesite-outfile hisat2/splicesite.txt -S hisat2/accepted_hits.sam -p 5 -x index/chr4_index -1 trimmomatic/ERR305399.left_paired.fastq.gz -2 trimmomatic/ERR305399.right_paired.fastq.gz
+```
+
+Fastp tool
+
+```bash
+# A tool designed to provide fast all-in-one preprocessing for FastQ files
+# https://github.com/OpenGene/fastp#fastp
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/
+
+export PATH=$TOOL:$PATH
+
+# for paired end data (gzip compressed)
+fastp -i P1283_S30_L001_R1.P.qtrim.fq -I P1283_S30_L001_R2.P.qtrim.fq -o out.R1.fq.gz -O out.R2.fq.gz
+```
+
+Then , report in multiqc document the result
+
+https://multiqc.info/docs/#hisat2
+
+
+
+Trinity (Failed to run)
+
+```bash
+module load gcc-7.2
+
+export PATH=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/:$PATH
+export PATH=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/trinity-plugins/jellyfish-2.2.6/bin/:$PATH
+
+which Trinity
+
+srun Trinity --seqType fq --max_memory 100G --samples_file samples.file --no_normalize_reads --CPU 24 --output trinity_out --no_salmon & 2> trinity.log &
+
+ /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/util/insilico_rea
+d_normalization.pl --seqType fq --JM 100G  --max_cov 200 --min_cov 1 --CPU 24 --output /LUSTRE/bioinformatica_data/ecol
+ogia_molecular/Francesco/Cancer/Trimmomatic/trinity_outputs/insilico_read_normalization --max_CV 10000  --left FILES ---right FILES --pairs_together --PARALLEL_STATS
+
+
+--pairs_together --PARALLEL_STATS   died with ret 6400 at /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/Trinity line 2745
+        main::process_cmd('/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/util...') called at /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/Trinity line 3295
+        main::normalize('/LUSTRE/bioinformatica_data/ecologia_molecular/Francesco/Canc...', 200, 'ARRAY(0x2884cf0)', 'ARRAY(0x2884d20)') called at /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/Trinity line 3238
+        main::run_normalization(200, 'ARRAY(0x2884cf0)', 'ARRAY(0x2884d20)') called at /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/Trinity line 1350
+        
+        
+        
+        
+        
+        
+CMD: /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/util/..//Inchworm/bin/fastaToKmerCoverageStats --reads left.fa --kmers jellyfish.K25.min2.kmers.fa --kmer_size 25  --num_threads 12  --DS  > left.fa.K25.stats
+CMD: /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/util/..//Inchworm/bin/fastaToKmerCoverageStats --reads right.fa --kmers jellyfish.K25.min2.kmers.fa --kmer_size 25  --num_threads 12  --DS  > right.fa.K25.stats
+-reading Kmer occurrences...-reading Kmer occurrences...
+
+terminate called after throwing an instance of 'std::bad_alloc'
 ```
 
