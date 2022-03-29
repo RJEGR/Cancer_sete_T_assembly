@@ -167,18 +167,46 @@ c("ID",	"Input Read Pairs",	"Both Surviving",	"Forward Only",	"Reverse Only",	"D
 
 ### 3) Test genome-guide assembly (hisat2)
 
-3.1) Concatenate forward and reverse reads in a single batch
+3.1) Concatenate forward and reverse reads in a single bulk `bulk_reads.sh`
 
 ```bash
-cat *.R1.P.qtrim.fq > reads_f.fq
-cat *.R2.P.qtrim.fq > reads_r.fq
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=cat
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 1
+#SBATCH --mem=12GB
+#SBATCH --ntasks-per-node=20
+
+cat *R1.P.qtrim.fq > reads_f.fq
+cat *R2.P.qtrim.fq > reads_r.fq
+
+exit 0
 ```
 
 3.2) Build the hg (v 38) index (For human genome take 4.5 Gb of memory, > 2 hours)
 
 ```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=assembly
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 2
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 15-00:00:00
+#SBATCH -p d15
+
 # https://nbisweden.github.io/workshop-RNAseq/1906/lab_assembly.html#22_hisat2
 # https://github.com/DaehwanKimLab/hisat2
+
+echo "Fecha inicio: `date`"
+echo "Ejecutandose con $SLURM_JOB_CPUS_PER_NODE"
+echo "Numero de nodos: $SLURM_NNODES y CPU por nodo: $SLURM_CPUS_ON_NODE"
+echo "CPUs totales= $SLURM_NPROCS"
+echo "Los nodos utilizados son: $SLURM_NODELIST"
+cd $SLURM_SUBMIT_DIR
 
 TOOL=/LUSTRE/apps/bioinformatica/hisat2-2.1.0/
 
@@ -214,48 +242,221 @@ samtools sort -o output.sorted.bam output.bam
 
 ```
 
+3.3) testing different indexes:
+
+Biostring [question](https://www.biostars.org/p/251741/): What is the difference between `genome`, `genome_tran` and `genome_snp_tran`
+
+```bash
+Genome is the basic index of the genome. genome_tran additionally includes annotated splicing boundaries. genome_snp_tranadditionally includes a number of SNPs, so you can (theoretically) get better alignment around them.
+
+# cite: https://www.biostars.org/p/251741/
+
+# vi urls:
+
+# genome	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_genome.tar.gz
+# genome_snp	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_snp.tar.gz
+# genome_tran	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_tran.tar.gz
+# genome_snp_tran	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_snptran.tar.gz
+# genome_rep(above 2.2.0)	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_rep.tar.gz
+# genome_snp_rep(above 2.2.0)	
+wget https://genome-idx.s3.amazonaws.com/hisat/grch38_snprep.tar.gz
+
+```
+
+```bash
+# cd /LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/hisat2-build/snp_trans
+
+srun cat urls | sh &> download.log &
+
+```
+
+```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=GRTA
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 2
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 15-00:00:00
+#SBATCH -p d15
+
+# Guide-Reference-Transcriptiome-Assembly
+# M.C Ricardo Gomez-Reyes
+
+
+echo "Fecha inicio: `date`"
+echo "Ejecutandose con $SLURM_JOB_CPUS_PER_NODE"
+echo "Numero de nodos: $SLURM_NNODES y CPU por nodo: $SLURM_CPUS_ON_NODE"
+echo "CPUs totales= $SLURM_NPROCS"
+echo "Los nodos utilizados son: $SLURM_NODELIST"
+cd $SLURM_SUBMIT_DIR
+
+TOOL=/LUSTRE/apps/bioinformatica/hisat2-2.1.0/
+export PATH=$TOOL:$PATH
+
+STOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/stringtie-2.2.1.Linux_x86_64
+export PATH=$STOOL:$PATH
+
+snp_trans=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hisat2-build/snp_trans/grch38_snp_tran/
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/gffread-0.12.7.Linux_x86_64
+export PATH=$TOOL:$PATH
+
+SAMTOOL=/LUSTRE/bioinformatica_data/genomica_funcional/cei/bin/samtools
+export PATH=$SAMTOOL:$PATH
+
+snp_trans=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hisat2-build/snp_trans/grch38_snp_tran
+
+
+out_sam=genome_snp_tran_vs_reads_f_and_reads_r_output.sam
+
+# 1)
+
+hisat2 --phred33 -p $SLURM_NPROCS -x $snp_trans/genome_snp_tran -1 reads_f.fq -2 reads_r.fq -S $out_sam
+
+# 1.1 sam to bam conversion and sorting
+
+samtools view -bS -o ${out_sam%.sam}.bam $out_sam
+
+samtools sort -o ${out_sam%.sam}.sorted.bam ${out_sam%.sam}.bam
+
+# 2)
+
+stringtie ${out_sam%.sam}.sorted.bam -o transcripts.gtf
+
+# 3) 
+
+hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hg38.fa
+
+# take a few minutes
+
+# -w flag write a fasta file with spliced exons for each transcript
+
+srun gffread -w transcripts.fa -g $hg transcripts.gtf &>gffread.log
+
+echo "Fecha de paro: `date`"
+
+exit
+
+```
+
+
+
 Integrate hisat to multiqc
 
 https://multiqc.info/docs/#hisat2
 
 ### 4) StringTie
 
+Assembly tools such as StringTie (Pertea, M., Kim, D., Pertea, G. M., Leek, J. T., & Salzberg, S. L. (2016). Transcript-level expression analysis of RNA-seq experiments with HISAT, StringTie and Ballgown. *Nature protocols*, *11*(9), 1650-1667.) ... use the gaps identified in the alignments to derive exon boundaries and possible splice sites. These de novo transcript assembly tools are particularly useful when the reference genome annotation may be missing or incomplete, or where aberrant transcripts (for example, in tumour tissue) are of interest ( Stark, R., Grzelak, M., & Hadfield, J. ([2019](https://www.nature.com/articles/s41576-019-0150-2)). RNA sequencing: the teenage years. *Nature Reviews Genetics*, *20*(11), 631-656) 
+
+``` /LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/StringTie```
+
 https://ccb.jhu.edu/software/stringtie/
 
+https://ccb.jhu.edu/software/stringtie/index.shtml?t=manual
+
 ```bash
-cd ..
-mkdir stringtie
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=StringTie
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 1
+#SBATCH --mem=50GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 06-00:00:00
+
+# mkdir StringTie
+# cd StringTie
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/stringtie-2.2.1.Linux_x86_64
+
+export PATH=$TOOL:$PATH
+
+# 
+
+# which stringtie
+# ln -s /LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/output.sorted.bam .
 
 # run StringTie
 
-stringtie hisat2/accepted_hits.sorted.bam -o stringtie/transcripts.gtf
+stringtie output.sorted.bam -o transcripts.gtf
 
-
+exit 0
 ```
 
-For the guided assembly results, you need first to extract the transcript sequences from the gtf transcript file :
+4.1) For the guided assembly results, you need first to extract the transcript sequences from the gtf transcript file. First load the compiled version of gffread tool:
 
 ```bash
-# Option 1
-wget https://raw.githubusercontent.com/NBISweden/AGAT/bf48b0d7bc18ab204d5880545acc4b66c1ef13b7/bin/agat_sp_extract_sequences.pl .
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/gffread-0.12.7.Linux_x86_64
+export PATH=$TOOL:$PATH
 
-chmod +x agat_sp_extract_sequences.pl
+SAMTOOL=/LUSTRE/bioinformatica_data/genomica_funcional/cei/bin/samtools
+export PATH=$SAMTOOL:$PATH
+```
 
-# Can't locate Clone.pm in @INC (you may need to install the Clone module)
+4.2) Many bioinformatics programs represent genes and transcripts in GFF format (**G**eneral **F**eature **F**ormat) which simply describes the locations and the attributes of gene and transcript features on the genome (chromosome or scaffolds/contigs). GFF has many versions, but the two most popular that are **GTF2** and GTF3 (Gene Transfer Format). 
 
-# Option 2
-
-# get the chosen AGAT container version
-singularity pull docker://quay.io/biocontainers/agat:0.8.0--pl5262hdfd78af_0 
-# run the container
-singularity run agat_0.8.0--pl5262hdfd78af_0.sif
-# 
-agat_convert_sp_gxf2gxf.pl --help
+```bash
+gffread -E transcripts.gtf | head
+gffread -E transcripts.gtf -T -o- | head
 ```
 
 
 
-#### 4.1) Assembly quality
+4.3) `gffread` can also be used to generate a FASTA file with the DNA sequences for all transcripts in a GFF file. For this operation a fasta file with the genomic sequences have to be provided as well. Note that the retrieval of the transcript sequences this way is going to be much faster if a fasta index file (genome.fa.fai in this example) is found in the same directory with the genomic fasta file.  Such an index file can be created with the [**samtools**](http://samtools.sourceforge.net/) utility prior to running gffread, like this: `samtools faidx genome.fa`. By default gffread 0.12.7 version creates an index at first.
+
+```bash
+hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hg38.fa
+
+# take a few minutes
+
+# -w flag write a fasta file with spliced exons for each transcript
+
+srun gffread -w transcripts.fa -g $hg transcripts.gtf &>gffread.log
+```
+
+#### 5) Assembly quality
+
+5.1) gff compare
+
+Gffcompare can be used to evaluate and compare the accuracy of transcript assemblers - in terms of their structural correctness (exon/intron coordinates). This assessment can even be performed in case of more generic "transcript discovery" programs like gene finders. The best way to do this would be to use a simulated data set (where the "reference annotation" is also the set of the expressed transcripts being simulated), but for well annotated reference genomes (human, mouse etc.), gffcompare can be used to evaluate and compare the general accuracy of isoform discovery programs on a real data set, using just the known (reference) annotation of that genome ([cite](http://ccb.jhu.edu/software/stringtie/gff.shtml#gffread))
+
+
+
+```bash
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/gffcompare-0.12.6.Linux_x86_64
+export PATH=$TOOL:$PATH
+
+# gffcompare -R -r mm10.gff -o strtcmp stringtie_asm.gtf
+
+# -r reference annotation file (GTF/GFF)
+# -R for -r option, consider only the reference transcripts that overlap any of the input transfrags (Sn correction)
+    
+gffcompare -R -r Homo_sapiens.GRCh38.84.gtf.gz -o strout transcripts.gtf
+
+# ftp://ftp.ensembl.org/pub/release-84/gtf/homo_sapiens/Homo_sapiens.GRCh38.84.gtf.gz
+
+ENSEMBL_RELEASE=84
+ENSEMBL_GRCh38_BASE=ftp://ftp.ensembl.org/pub/release-${ENSEMBL_RELEASE}/fasta/homo_sapiens/dna
+F=Homo_sapiens.GRCh38.dna.primary_assembly.fa
+wget ${ENSEMBL_GRCh38_BASE}/$F.gz
+```
+
+
+
+
+
+5.2) BUSCO
 
 ```bash
 #!/bin/sh
