@@ -275,6 +275,8 @@ srun cat urls | sh &> download.log &
 
 ```
 
+Run in a single batch
+
 ```bash
 #!/bin/sh
 ## Directivas
@@ -312,12 +314,18 @@ export PATH=$TOOL:$PATH
 SAMTOOL=/LUSTRE/bioinformatica_data/genomica_funcional/cei/bin/samtools
 export PATH=$SAMTOOL:$PATH
 
-snp_trans=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hisat2-build/snp_trans/grch38_snp_tran
+FPATH=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hisat2-build/snp_trans/
 
+snp_trans=${FPATH}/grch38_snp_tran
+
+
+F=Homo_sapiens.GRCh38.dna.primary_assembly.fa
+
+# Outputs
 
 out_sam=genome_snp_tran_vs_reads_f_and_reads_r_output.sam
 
-# 1)
+# 1) Alignment
 
 hisat2 --phred33 -p $SLURM_NPROCS -x $snp_trans/genome_snp_tran -1 reads_f.fq -2 reads_r.fq -S $out_sam
 
@@ -327,19 +335,21 @@ samtools view -bS -o ${out_sam%.sam}.bam $out_sam
 
 samtools sort -o ${out_sam%.sam}.sorted.bam ${out_sam%.sam}.bam
 
-# 2)
+# 2) Assembly
 
 stringtie ${out_sam%.sam}.sorted.bam -o transcripts.gtf
 
-# 3) 
+# 2.1 Reference annotation transcripts (-G)
+# Flag -G is for include reference annotation to use for guiding the assembly process (GTF/GFF)
 
-hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/hg38.fa
+stringtie ${out_sam%.sam}.sorted.bam -B -G ${FPATH}/Homo_sapiens.GRCh38.84.gtf -o Homo_sapiens.GRCh38.84_transcripts.gtf
 
-# take a few minutes
+# 3) Generate a FASTA file with the DNA sequences for all transcripts in a GFF file.
+
 
 # -w flag write a fasta file with spliced exons for each transcript
 
-srun gffread -w transcripts.fa -g $hg transcripts.gtf &>gffread.log
+gffread -w transcripts.fa -g $FPATH/$F transcripts.gtf
 
 echo "Fecha de paro: `date`"
 
@@ -428,7 +438,7 @@ srun gffread -w transcripts.fa -g $hg transcripts.gtf &>gffread.log
 
 5.1) gff compare
 
-Gffcompare can be used to evaluate and compare the accuracy of transcript assemblers - in terms of their structural correctness (exon/intron coordinates). This assessment can even be performed in case of more generic "transcript discovery" programs like gene finders. The best way to do this would be to use a simulated data set (where the "reference annotation" is also the set of the expressed transcripts being simulated), but for well annotated reference genomes (human, mouse etc.), gffcompare can be used to evaluate and compare the general accuracy of isoform discovery programs on a real data set, using just the known (reference) annotation of that genome ([cite](http://ccb.jhu.edu/software/stringtie/gff.shtml#gffread))
+Gffcompare can be used to evaluate and compare the accuracy of transcript assemblers - in terms of their structural correctness (exon/intron coordinates). This assessment can even be performed in case of more generic "transcript discovery" programs like gene finders. The best way to do this would be to use a simulated data set (where the "reference annotation" is also the set of the expressed transcripts being simulated), but for well annotated reference genomes (human, mouse etc.), gffcompare can be used to evaluate and compare the general accuracy of isoform discovery programs on a real data set, using just the known (reference) annotation of that genome ([cite](http://ccb.jhu.edu/software/stringtie/gff.shtml#gffread)).  Assume the StringTie's output is in `transcript.gtf`, while the reference annotation would be in a file called `Homo_sapiens.GRCh38.84.gtf`, the gffcompare commands would be:
 
 
 
@@ -437,19 +447,24 @@ Gffcompare can be used to evaluate and compare the accuracy of transcript assemb
 TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/gffcompare-0.12.6.Linux_x86_64
 export PATH=$TOOL:$PATH
 
-# gffcompare -R -r mm10.gff -o strtcmp stringtie_asm.gtf
-
 # -r reference annotation file (GTF/GFF)
 # -R for -r option, consider only the reference transcripts that overlap any of the input transfrags (Sn correction)
     
-gffcompare -R -r Homo_sapiens.GRCh38.84.gtf.gz -o strout transcripts.gtf
+gffcompare -R -r Homo_sapiens.GRCh38.84.gtf -o strout transcripts.gtf
 
-# ftp://ftp.ensembl.org/pub/release-84/gtf/homo_sapiens/Homo_sapiens.GRCh38.84.gtf.gz
+# Download References
 
 ENSEMBL_RELEASE=84
+
 ENSEMBL_GRCh38_BASE=ftp://ftp.ensembl.org/pub/release-${ENSEMBL_RELEASE}/fasta/homo_sapiens/dna
+
+ENSEMBL_GRCh38_GTF=ftp://ftp.ensembl.org/pub/release-${ENSEMBL_RELEASE}/gtf/homo_sapiens/Homo_sapiens.GRCh38.${ENSEMBL_RELEASE}
+
 F=Homo_sapiens.GRCh38.dna.primary_assembly.fa
+
 wget ${ENSEMBL_GRCh38_BASE}/$F.gz
+
+wget ${ENSEMBL_GRCh38_GTF}.gtf.gz
 ```
 
 
