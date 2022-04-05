@@ -1,7 +1,5 @@
 [TOC]
 
-
-
 ### 1) Make a quick view of the meta data:
 
 ```bash
@@ -168,6 +166,8 @@ c("ID",	"Input Read Pairs",	"Both Surviving",	"Forward Only",	"Reverse Only",	"D
 ### 3) Test genome-guide assembly (hisat2)
 
 3.1) Concatenate forward and reverse reads in a single bulk `bulk_reads.sh`
+
+**Note**: if try to quantify using stringtie (instead of RSEM), needs to run hisat2 in a per-sample-aligment mode instead of concatenate all the reads in a single bulk. After it you can use samtools to merge and combine bam files after alignmente Ej: https://rnabio.org/module-02-alignment/0002/03/01/Alignment/
 
 ```bash
 #!/bin/sh
@@ -434,23 +434,25 @@ hg=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/Genomes/human/hg38ome/h
 srun gffread -w transcripts.fa -g $hg transcripts.gtf &>gffread.log
 ```
 
-#### 5) Assembly quality
+### 5) Assembly quality
 
-5.1) gff compare
+#### 5.1) gff compare:  Evaluating transcript discovery accuracy
 
-Gffcompare can be used to evaluate and compare the accuracy of transcript assemblers - in terms of their structural correctness (exon/intron coordinates). This assessment can even be performed in case of more generic "transcript discovery" programs like gene finders. The best way to do this would be to use a simulated data set (where the "reference annotation" is also the set of the expressed transcripts being simulated), but for well annotated reference genomes (human, mouse etc.), gffcompare can be used to evaluate and compare the general accuracy of isoform discovery programs on a real data set, using just the known (reference) annotation of that genome ([cite](http://ccb.jhu.edu/software/stringtie/gff.shtml#gffread)).  Assume the StringTie's output is in `transcript.gtf`, while the reference annotation would be in a file called `Homo_sapiens.GRCh38.84.gtf`, the gffcompare commands would be:
-
-
+Gffcompare can be used to evaluate and compare the accuracy of transcript assemblers - in terms of their structural correctness (exon/intron coordinates). This assessment can even be performed in case of more generic "transcript discovery" programs like gene finders. The best way to do this would be to use a simulated data set (where the "reference annotation" is also the set of the expressed transcripts being simulated), but for well annotated reference genomes (human, mouse etc.), gffcompare can be used to evaluate and compare the general accuracy of isoform discovery programs on a real data set, using just the known (reference) annotation of that genome ([cite](http://ccb.jhu.edu/software/stringtie/gffcompare.shtml)).  Assume the StringTie's output is in `transcript.gtf`, while the reference annotation would be in a file called `Homo_sapiens.GRCh38.84.gtf`, the gffcompare commands would be:
 
 ```bash
-
+# For interpretation Continue w/ http://ccb.jhu.edu/software/stringtie/gffcompare.shtml
 TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/gffcompare-0.12.6.Linux_x86_64
 export PATH=$TOOL:$PATH
 
 # -r reference annotation file (GTF/GFF)
 # -R for -r option, consider only the reference transcripts that overlap any of the input transfrags (Sn correction)
-    
-gffcompare -R -r Homo_sapiens.GRCh38.84.gtf -o strout transcripts.gtf
+# -o is for prefix to add in the output files
+
+# Ex. gffcompare -R -r Homo_sapiens.GRCh38.84.gtf -o gffcompare transcripts.gtf
+gffcompare -R -r Homo_sapiens.GRCh38.84.gtf -o gffcompare transcripts.gtf
+
+# A Sensitivity | Precision stats will print out in the *.stats file
 
 # Download References
 
@@ -469,9 +471,7 @@ wget ${ENSEMBL_GRCh38_GTF}.gtf.gz
 
 
 
-
-
-5.2) BUSCO
+#### 5.2) BUSCO (Completeness)
 
 ```bash
 #!/bin/sh
@@ -487,7 +487,7 @@ wget ${ENSEMBL_GRCh38_GTF}.gtf.gz
 module load python-2.7-anaconda
 
 fasta=$1
-out=${fasta%.fasta}
+out=${fasta%.fa}
 
 BUSCO=/home/rgomez/bin/busco-master/scripts/
 export PATH=$BUSCO:$PATH
@@ -505,23 +505,280 @@ exit
 # https://busco.ezlab.org/busco_userguide.html#interpreting-the-results
 ```
 
-#### 4.2) Transrate
+After running busco, 
 
 ```bash
+mkdir summaries
+cp ./run_transcripts*_odb*/short_summary* summaries
 
+module load R-3.3.1
+
+python2.7 /home/rgomez/bin/busco-master/scripts/generate_plot.py --working_directory ./summaries/
+cp summaries/busco_figure.R .
+sed -i 's/_odb9//g' summaries/busco_figure.R
+Rscript summaries/busco_figure.R
+
+# Additionally, prepare full_Table
+mkdir full_tables
+cp ./run_transcripts*_odb*/full_table_transcripts* full_tables
+
+```
+
+scp
+
+```bash
+scp -r rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/snp_trans/summaries .
+scp -r rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/StringTie/summaries summaries_genome
 ```
 
 
 
-### 5) Annotation
+#### 5.3) Transrate
+
+`sbatch transrate.sh transcripts.fa reads_f.fq reads_r.fq`	
+
+Test the oyster River protocol versio  `git clone https://github.com/macmanes-lab/Oyster_River_Protocol.git`
 
 ```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=ORvrP
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 2
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 6-00:00:00
+
+#tool=/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/transrate-1.0.3-linux-x86_64
+tool=/LUSTRE/bioinformatica_data/genomica_funcional/bin/Oyster_River_Protocol/software/orp-transrate
+export PATH=$tool:$PATH
+
+fasta=$1
+left=$2
+right=$3
+out=${fasta%.fa}
+
+
+
+transrate --assembly $fasta --left $left --right $right --threads $SLURM_NPROCS --output ${out}_transrate
+
+exit
+# 609,125,172
+# -mcp 10,000,000 to 700000000
+# testig solution to https://github.com/blahah/transrate/issues/204
+# You need to add this line between lines 39 and 40 cmd << " -mcp 700000000" # maximum candidate pool size
+# /LUSTRE/bioinformatica_data/genomica_funcional/rgomez/transrate-1.0.3-linux-x86_64/lib/app/lib/transrate/snap.rb
 
 ```
 
-### 6) Quantification
+/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/snp_trans/transrate
+
+5.4) Strand spec
+
+https://github.com/trinityrnaseq/trinityrnaseq/wiki/Examine-Strand-Specificity
+
+### 6) Annotation
+
+https://rjegr.github.io/Transcriptomics/markdown/trinotate
+
+/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/annotation/dataBase
+
+Because a problem during the `Build_Trinotate_Boilerplate_SQLite_db`  step (error at the SNOGG download) We will use a copy of an emtpy Trinotate.sqlite file from `/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/oyster_full_assembly/annotation`
 
 ```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=transrate
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 2
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+
+# error en el batch con la descarga,
+
+SOURCE=/LUSTRE/bioinformatica_data/genomica_funcional/scripts/exports
+
+source $SOURCE
+
+$NOTATE_AD/Build_Trinotate_Boilerplate_SQLite_db.pl Trinotate
+
+$BLAST/makeblastdb -in uniprot_sprot.pep -dbtype prot
+gunzip Pfam-A.hmm.gz
+$HMM/hmmpress Pfam-A.hmm &> hmmpress.log
+
+exit
+```
+
+prepare isoform genes relation 
+
+```bash
+grep '^>' transcripts.fa |  sed 's/>//g' > transcript.map
+cat transcript.map | awk '{gsub(/\.[0-9]$/,"",$1); print $1}' > genes.map
+paste genes.map transcript.map > genes_trans_map
+rm *.map
+```
+
+Run trinotate `sbatch annot.sh transcript.fa`
+
+`chmod +x annot.sh`
+
+```bash
+#!/bin/bash
+### Directivas
+#SBATCH -p cicese
+#SBATCH --job-name=trinotate
+#SBATCH --ntasks-per-node=24
+#SBATCH -N 2
+#SBATCH --output=trinotate-%j.log
+#SBATCH --error=trinotate-%j.err
+#SBATCH -t 6-00:00:00
+
+fasta=$1
+
+RUN=/LUSTRE/apps/bioinformatica/Trinotate/auto/
+
+$RUN/autoTrinotate.pl --Trinotate_sqlite Trinotate.sqlite --transcripts $fasta --gene_to_trans_map genes_trans_map --conf conf.txt --CPU $SLURM_NPROCS
+
+exit
+```
+
+### 7) Quantification
+
+7.1) RSEM
+
+```bash
+ls ../*R2* | grep fq | sort > R2.tmp && ls ../*R1* | grep fq | sort > R1.tmp && \
+cut -d "_" -f1 R1.tmp > factors.tmp && \
+cut -d "_" -f1 R1.tmp > codes.tmp && \
+paste factors.tmp codes.tmp R1.tmp R2.tmp | awk '{gsub(/\-/,"_",$2); \
+print $1,$2,$3,$4}' | column -t > samples.file && rm *tmp
+
+# sed 's/[.,/]//g' samples.file
+```
+
+`vi RSEM.sh`
+`chmod +x RSEM.sh`
+`sbatch RSEM.sh transcripts.fa samples.file`
+
+/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/quantification
+
+```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=RSEM
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 2
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 15-00:00:00
+#SBATCH -p d15
+
+#Defining paths for RSEM
+BOWTIE2=/LUSTRE/apps/bioinformatica/bowtie2
+UTILS=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/util
+RSEM=/LUSTRE/bioinformatica_data/genomica_funcional/bin/RSEM
+SAM2LS=/LUSTRE/apps/bioinformatica/samtools-1.7/bin
+
+#exporting paths:
+export PATH=$UTILS:$PATH
+export PATH=$BOWTIE2:$PATH
+export PATH=$RSEM:$PATH
+export PATH=$SAM2LS:$PATH
+
+fasta=$1
+sam_file=$2
+
+align_and_estimate_abundance.pl --transcripts $fasta --seqType fq \
+    --est_method RSEM \
+    --aln_method bowtie2 \
+    --prep_reference \
+    --samples_file $sam_file \
+    --thread_count=$SLURM_NPROCS
+    # --gene_trans_mapls
+
+exit
+
+
+```
+
+Then, prepare matrix for Differential Expression Analysis
+
+```bash
+mkdir DiffExp
+cd DiffExp
+
+ls ../C*/*.isoforms.results > isoforms.results
+ls ../P10*/*.isoforms.results >> isoforms.results
+
+UTILS=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/util
+
+$UTILS/abundance_estimates_to_matrix.pl \
+        --gene_trans_map genes_trans_map \
+        --est_method RSEM \
+        --out_prefix Isoforms \
+        --quant_files isoforms.results \
+        --name_sample_by_basedir
+```
+
+And download
+
+```bash
+scp -r rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/DiffExp .
+```
+
+Additionally, prepera Exploratory data analysis
+
+```bash
+PTR=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/Analysis/DifferentialExpression
+export PATH=$PTR:$PATH
+
+sbatch PtR.sh Isoforms.isoform.counts.matrix samples.file.sbst
+```
+
+Then
+
+```bash
+scp -r rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/DiffExp/figures/ .
+```
+
+
+
+
+
+7.) Stringtie to Ballow (Para implementar estar version, es neceasrio generar el alineamiento por biblioteca en el paso de `hisat2 > sam2bam > merge sorted.bam` para generar la tabla de abundancia sample-to-sample) Por ejemplo: `/Users/cigom/Documents/DOCTORADO/stringTie`
+
+https://rnabio.org/module-03-expression/0003/02/01/Expression/
+
+https://www.bioconductor.org/packages/release/bioc/vignettes/ballgown/inst/doc/ballgown.html
+
+```bash
+/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/snp_trans/transcripts.gtf
+
+# ‘-B’ enable output of Ballgown table files which will be created in the same directory as the output GTF (requires -G, -o recommended)
+# ‘-A’ output path/file name for gene abundance estimates
+
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=StringTie
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 1
+#SBATCH --mem=50GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 06-00:00:00
+
+# mkdir StringTie
+# cd StringTie
+
+TOOL=/LUSTRE/bioinformatica_data/genomica_funcional/bin/stringtie-2.2.1.Linux_x86_64
+
+export PATH=$TOOL:$PATH
+
+stringtie genome_snp_tran_vs_reads_f_and_reads_r_output.sorted.bam -B -G Homo_sapiens.GRCh38.84.gtf -o Homo_sapiens.GRCh38.84_transcripts.gtf -A transcripts_abundance.tsv
+
 
 ```
 
