@@ -269,3 +269,159 @@ tbl %>%
   theme(axis.text.x = element_text(angle = 45, 
     hjust = 1, vjust = 1, size = 10)) +
   labs(y = "", x = "")
+
+# Quantification ----
+
+rm(list = ls())
+
+options(stringsAsFactors = FALSE)
+
+library(tidyverse)
+
+path <- '~/Documents/DOCTORADO/DiffExp/'
+
+pattern_f <- 'counts.matrix'
+
+file <- list.files(path, pattern = pattern_f,  full.names = TRUE)
+
+read_tsv <- function(f) {
+  g <- basename(f)
+  g <- sapply(strsplit(g, "\\."), `[`, 2)
+  g <- str_to_title(g)
+  
+  df <- read.delim(f, sep = "\t", header = T, row.names = 1)
+  df %>% as_tibble(df) %>% mutate(g = g)
+  #return(df)
+}
+
+df <- lapply(file, read_tsv)
+
+head(df <- do.call(rbind, df))
+
+df %>% distinct(g)
+
+count <- df %>% filter(g %in% 'Isoform') %>% select(-g)
+
+count <- edgeR::cpm(count) %>% as.data.frame()
+
+nrow(count)
+nrow(count <- count[rowSums(count) > 1,])
+
+# PCA ----
+
+PCA <- prcomp(t(log2(count+1)), scale. = FALSE) 
+
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+
+sd_ratio <- sqrt(percentVar[2] / percentVar[1])
+
+dtvis <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
+
+dtvis %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 7) %>% as_tibble(rownames = 'id') %>%
+  mutate(cluster = paste0('C', value)) %>% select(-value) -> hclust_res
+
+dtvis %>%
+  mutate(id = rownames(.)) %>%
+  left_join(hclust_res) %>%
+  ggplot(., aes(PC1, PC2), color = as.factor(cluster)) +
+  ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
+  # geom_point(size = 5, alpha = 0.9) +
+  geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
+  geom_text(aes(label = id), alpha = 0.9) +
+  labs(caption = '') +
+  xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
+  ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
+  theme_bw(base_family = "GillSans", base_size = 16) +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
+  coord_fixed(ratio = sd_ratio)
+
+
+# Prevalence of features ----
+
+prevelancedf = apply(count, 1, function(x) sum(x > 0))
+
+mean_se = apply(count, 1, function(x) mean_se(x)) %>% do.call(rbind, .)
+
+data.frame(Prevalence = prevelancedf, 
+  TotalAbundance = rowSums(count),
+  mean_se) %>% 
+  as_tibble(rownames = "id") %>%
+  arrange(desc(TotalAbundance)) -> prevelancedf
+
+prevelancedf %>% 
+  arrange(Prevalence) %>%
+  mutate(Prevalence = paste0(Prevalence, ' Samples')) %>%
+  mutate(Prevalence = factor(Prevalence, levels = unique(Prevalence))) %>%
+  mutate(TotalAbundance = log2(TotalAbundance+1)) %>%
+  ggplot(aes(TotalAbundance)) + geom_histogram() + 
+  facet_wrap(~ Prevalence, scales = 'free_y') -> p1
+
+dat_text <- prevelancedf %>% group_by(Prevalence) %>% tally() %>% 
+  mutate(cumsum = cumsum(n)) %>% arrange(Prevalence) %>%
+  mutate(Prevalence = paste0(Prevalence, ' Samples')) %>%
+  mutate(Prevalence = factor(Prevalence, levels = unique(Prevalence)))
+
+p1 + geom_text(
+  data    = dat_text, family = "GillSans",
+  mapping = aes(x = -Inf, y = -Inf, label = paste0(n, " genes")),
+  hjust   = -1,
+  vjust   = -2
+) + theme_classic(base_size = 10, base_family = "GillSans") +
+  labs(x = expression(~Log[2]~('TotalAbundance'~+1)), y = "")
+
+# 
+
+cmatch <-distinct(hclust_res, cluster) %>% pull()
+
+cols <- colnames(count)
+
+
+# barplot 
+
+df %>% filter(g %in% 'Isoform') %>% select(-g)  -> raw 
+
+nrow(raw)
+nrow(raw <- count[rowSums(raw) > 1,])
+
+raw %>% pivot_longer(cols = all_of(cols), names_to = 'id', values_to = 'count') -> raw_longer
+
+raw_longer %>%
+  filter(count > 1) %>%
+  group_by(id) %>% 
+  summarise(count = sum(count)) %>%
+  left_join(hclust_res) %>%
+  arrange(match(cluster, cmatch)) %>%
+  mutate(id = factor(id, levels = unique(id))) %>%
+  ggplot(aes(y = count, x = id, fill = cluster)) +
+  geom_col() +
+  labs(x = '', 'CPM') +
+  theme_bw(base_size = 10, base_family = "GillSans") +
+  theme(axis.text.x = element_text(angle = 45, 
+    hjust = 1, vjust = 1, size = 10),
+    legend.position = 'none') -> pbottom
+
+# boxplot
+
+
+count %>% 
+  pivot_longer(cols = all_of(cols), names_to = 'id', values_to = 'count') %>% 
+  filter(count > 1) -> count_longer
+
+
+count_longer %>% mutate(count = log2(count+1)) %>% group_by(id) %>% summarise(q = quantile(count)) -> long_summ
+
+long_summ %>%
+  ungroup() %>%
+  left_join(hclust_res) %>%
+  arrange(match(cluster, cmatch)) %>%
+  mutate(id = factor(id, levels = unique(id))) %>%
+  ggplot(aes(x = id, y = q, fill = cluster, color = cluster)) +
+  stat_boxplot(geom ='errorbar', width = 0.3, position = position_dodge(0.6)) +
+  geom_boxplot(width = 0.3, position = position_dodge(0.6), outlier.alpha = 0.5) +
+  labs(y = expression(log[2]), x = '') +
+  ylim(1, 5) + theme(legend.position = 'none') -> ptop
+
+library(patchwork)
+
+ptop / pbottom

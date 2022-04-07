@@ -711,7 +711,9 @@ mkdir DiffExp
 cd DiffExp
 
 ls ../C*/*.isoforms.results > isoforms.results
-ls ../P10*/*.isoforms.results >> isoforms.results
+ls ../P*/*.isoforms.results >> isoforms.results
+
+module load R-3.5.0_bio
 
 UTILS=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/util
 
