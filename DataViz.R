@@ -294,6 +294,8 @@ read_tsv <- function(f) {
   #return(df)
 }
 
+mtd <- read.csv(file = paste0(path, 'Mapping_file_FINAL.csv'))
+
 df <- lapply(file, read_tsv)
 
 head(df <- do.call(rbind, df))
@@ -323,18 +325,21 @@ dtvis %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 7) %>% as_tibble
 dtvis %>%
   mutate(id = rownames(.)) %>%
   left_join(hclust_res) %>%
-  ggplot(., aes(PC1, PC2), color = as.factor(cluster)) +
-  ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
+  left_join(mtd) %>%
+  ggplot(., aes(PC1, PC2)) +
+  # ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
   # geom_point(size = 5, alpha = 0.9) +
   geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
   geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
-  geom_text(aes(label = id), alpha = 0.9) +
+  geom_text(aes(label = id, color = Sample_Type), alpha = 1) +
   labs(caption = '') +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
   theme_bw(base_family = "GillSans", base_size = 16) +
   theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
-  coord_fixed(ratio = sd_ratio)
+  coord_fixed(ratio = sd_ratio) +
+  scale_color_brewer(palette = "Set1")
+  # facet_grid(~ Sample_Type)
 
 
 # Prevalence of features ----
@@ -382,12 +387,12 @@ cols <- colnames(count)
 df %>% filter(g %in% 'Isoform') %>% select(-g)  -> raw 
 
 nrow(raw)
-nrow(raw <- count[rowSums(raw) > 1,])
+nrow(raw <- raw[rowSums(raw) > 1,])
 
 raw %>% pivot_longer(cols = all_of(cols), names_to = 'id', values_to = 'count') -> raw_longer
 
 raw_longer %>%
-  filter(count > 1) %>%
+  filter(count > 0) %>%
   group_by(id) %>% 
   summarise(count = sum(count)) %>%
   left_join(hclust_res) %>%
