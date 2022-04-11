@@ -489,7 +489,7 @@ PCAdf %>%
   # coord_fixed(ratio = sd_ratio) +
   scale_color_brewer('',palette = "Set1")
 
-# Correlation heatmap
+# Correlation heatmap ----
 
 sample_cor = cor(data, method='pearson', use='pairwise.complete.obs')
 sample_dist = dist(t(data), method='euclidean')
@@ -558,7 +558,7 @@ p1 + geom_text(
   labs(x = expression(~Log[2]~('TotalAbundance'~+1)), y = "")
 
 # 
-# Normalized vs raw data count ----
+# (omit) Normalized vs raw data count ----
 # Rarefaction will be useful in evaluations of gene discovery using next-generation sequencing technologies as an analytical approach from theoretical ecology (rarefaction) to evaluate depth of sequencing coverage relative to gene discovery ... Rarefaction suggests that normalization has little influence on the efficiency of gene discovery, at least when working with thousands of reads from a single tissue type. (Hale, M. C., McCormick, et al 2009)
 
 library(vegan)
@@ -662,6 +662,10 @@ ggplot(data = outNp, aes(x = Size, y = `.S`,
 
 # DESEQ2 ----
 
+colors_fc <- c("red2", 
+  "#4169E1",
+  "forestgreen", "grey30")
+
 hclust_res %>% mutate(g = substr(id, 1,1)) %>%
   select(-id) %>% 
   mutate(g = factor(g, levels = unique(g))) %>%
@@ -682,6 +686,8 @@ ddsFullCountTable <- DESeqDataSetFromMatrix(
 
 dds <- DESeq(ddsFullCountTable)
 
+# dds <- estimateSizeFactors(dds)
+
 contrast <- levels(colData$g)
 
 get_res <- function(dds, contrast) {
@@ -695,8 +701,10 @@ get_res <- function(dds, contrast) {
   
   res = results(dds, contrast)
   
-  baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$conditions == sA])
-  baseMeanB <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$conditions == sB])
+  # dds <- estimateSizeFactors(dds)
+  
+  baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$g == sA])
+  baseMeanB <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$g == sB])
   
   res %>%
     as.data.frame(.) %>%
@@ -708,9 +716,67 @@ get_res <- function(dds, contrast) {
       round ,digits = 2)
 }
 
+prep_DE_data <- function(res, padj_in, logfc_in) {
+  
+  FC_cols <- c('logFC','log2FoldChange')
+  pv_cols <- c('P.Value','pvalue', 'PValue')
+  pvad_cols <- c('padj', 'FDR', 'adj.P.Val')
+  
+  sam <- c('baseMeanA', 'baseMeanB')
+  
+  rename_to <- c('logFC', 'pvalue', 'padj')
+  # 
+  # sigfc <- "<b>P</b>-value & Log<sub>2</sub> FC"
+  # pv <- "<b>P</b>-value"
+  # fc <- "Log<sub>2</sub> FC"
+  # 
+  # sigfc <- expression(p - value ~ and ~ log[2] ~ FC)
+  # pv <- "p-value"
+  # fc <- expression(Log[2] ~ FC)
+  # 
+  sigfc <- "p - value ~ and ~ log[2] ~ FC"
+  pv <- "p-value"
+  fc <- "Log[2] ~ FC"
+
+  
+  sample_NS <- function(res, n) {
+    
+    x <- filter(res, !(cc %in% c('NS', fc)))
+    
+    y <- sample_n(filter(res, cc == fc), n)
+    
+    z <- sample_n(filter(res, cc == 'NS'), n) 
+    
+    dat_sampled <- rbind(x,y,z)
+    
+    return(dat_sampled)
+  }
+  
+  res %>%
+    # drop_na() %>%
+    select_at(vars(ids, contains(sam), contains(FC_cols), 
+      contains(pv_cols),
+      contains(pvad_cols))) %>%
+    rename_at(vars(contains(FC_cols),
+      contains(pv_cols),
+      contains(pvad_cols)), ~ rename_to) %>%
+    arrange(pvalue) -> res
+  
+  
+  res$cc <- 'NS'
+  res[which(abs(res$logFC) >= logfc_in), 'cc'] <- fc
+  res[which(abs(res$padj) <= padj_in), 'cc'] <- pv
+  res[which(res$padj <= padj_in & abs(res$logFC) >= logfc_in), 'cc'] <- sigfc
+  
+  res %>%
+    # sample_NS(.,1000) %>%
+    mutate(cc = factor(cc, levels = c(sigfc, pv, fc, "NS")))
+
+}
+
 res <- get_res(dds, contrast)
 
-res <- prep_DE_data(res, padj_in = , logfc_in = 2) %>%
+resviz <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2) %>%
   drop_na(cc)
 
 # Test run_DESEQ2(count, g)
@@ -719,7 +785,88 @@ res <- prep_DE_data(res, padj_in = , logfc_in = 2) %>%
 logfc_in <- 2
 padj_in <- 0.05 
 
-res %>%
-  ggplot(aes(y = -log10(pvalue), x = logFC)) +
-  geom_point(aes(color = cc))
+resviz %>%
+  mutate(pvalue = -log10(pvalue)) %>%
+  ggplot(aes(x = logFC, y = pvalue)) +
+  geom_point(aes(color = cc), alpha = 3/5) +
+  scale_color_manual(name = "", values = colors_fc) + 
+  labs(x= expression(Log[2] ~ "Fold Change"), 
+    y = expression(-Log[10] ~ "P")) +
+  theme_bw(base_family = "GillSans") +
+  theme(legend.position = "top") 
+
+resviz %>%
+  mutate(g = ifelse(logFC > 0, 'Control', 'Cancer')) %>%
+  group_by(cc,g ) %>% tally() %>%
+  filter(cc != 'NS') %>%
+  ggplot() +
+  geom_bar(aes(x = g, y = n, fill = cc), 
+    stat = 'identity', position = position_dodge2()) +
+  scale_fill_manual(name = "", values = colors_fc[-4]) +
+  labs(y = '# Genes', x = '') +
+  theme(legend.position = 'none')
+
+# and bar plot
+
+# resviz %>%
+#   filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+#   pivot_longer(cols = c('baseMeanA', 'baseMeanB')) %>%
+#   group_by(name) %>%
+#   # arrange(desc(logFC)) %>%
+#   slice_head(n = 20) %>%
+#   ggplot(aes(x = ids, y = value, fill = name)) +
+#   geom_col(position = position_dodge2()) +
+#   labs(y = 'Base Mean', x = 'Genes') +
+#   theme_classic() +
+#   theme(
+#     legend.position = 'top',
+#     panel.border = element_blank(),
+#     axis.text.x = element_blank(),
+#     # axis.ticks.x = element_blank(),
+#     axis.line.x = element_blank()) +
+#   facet_grid(~name)
+
+# returno to heatmap to get positions
+resviz %>%
+  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  pull(ids) %>% as.numeric() -> diffexpList
+
+count[diffexpList,] -> dfheat
+
+sample_cor = cor(dfheat, method='pearson', use='pairwise.complete.obs')
+sample_dist = dist(t(dfheat), method='euclidean')
+hc_samples = hclust(sample_dist, method='complete')
+
+hc_order <- hc_samples$labels[hc_samples$order]
+
+count %>% 
+  as_tibble(rownames = 'Sample') %>%
+  pivot_longer(cols = colnames(count), values_to = 'count') %>%
+  mutate(name = factor(name, levels = hc_order)) %>%
+  mutate(g = substr(name, 1,1)) %>%
+  filter(count > 0) -> countLong
+
+countLong %>% distinct(name, g) %>% mutate(col = ifelse(g %in% 'C', 'red', 'blue')) -> coldf 
+
+structure(coldf$col, names =  as.character(coldf$name)) -> axis_col
+
+library(ggh4x)
+
+countLong %>%
+  ggplot(aes(x = name, y = Sample, fill = log2(count+1))) + 
+  geom_raster() + 
+  theme_classic(base_size = 12, base_family = "GillSans") +
+  ggsci::scale_color_gsea(name = expression(Log[2]~'Count')) +
+  # scale_x_discrete(position = 'top') +
+  labs(x = '', y = '') +
+  ggh4x::scale_x_dendrogram(hclust = hc_samples) +
+  theme(axis.text.x = element_text(angle = 90, 
+    hjust = 1, vjust = 1, size = 10, color = axis_col), 
+    axis.ticks.length = unit(5, "pt"),
+    # legend.position = 'top',
+    panel.border = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank()) -> pheat
+# ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top')
 
