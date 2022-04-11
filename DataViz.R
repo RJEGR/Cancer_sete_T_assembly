@@ -324,12 +324,14 @@ names(n_genes) <- c('name','Raw', 'Filt')
 n_genes %>% mutate(pct = Raw - Filt) -> n_genes
 
 n_genes %>%
+  mutate(g = substr(name, 1,1)) %>%
   arrange(desc(pct)) %>%
   mutate(name = factor(name, levels = unique(name))) %>%
-  ggplot() + geom_col(aes(x = name, y = pct), fill = 'black') +
+  ggplot() + geom_col(aes(x = name, y = pct, fill = g)) +
   labs(x = '', y = 'Removed genes') +
   coord_flip() +
-  theme_classic() -> p1
+  theme_classic() +
+  scale_fill_brewer('', palette = "Set1") -> p1
 
 # Is a linearity between singletones and abundances?
 # Raw barplot ----
@@ -357,13 +359,14 @@ Total_size %>%
   arrange(desc(Raw)) %>%
   mutate(pct = Raw - Filt) -> n_reads
 
-
 n_reads %>%
+  mutate(g = substr(name, 1,1)) %>%
   mutate(name = factor(name, levels = idLev)) %>%
   ggplot() +
-  geom_col(aes(x = name, y = pct)) +
+  geom_col(aes(x = name, y = pct, fill = g)) +
   labs(x = '', y = 'Removed reads') +
   coord_flip() +
+  scale_fill_brewer('', palette = "Set1") +
   theme_classic() +
   theme(
     panel.border = element_blank(),
@@ -375,6 +378,9 @@ n_reads %>%
 
 n_reads %>% arrange(match(idLev,name)) %>% pull(pct) -> x
 n_genes %>% arrange(match(idLev,name)) %>% pull(pct) -> y
+
+n_reads %>% mutate(p = (pct * 100) / Raw)
+n_genes %>% mutate(p = (pct * 100) / Raw)
 
 ggdf <- data.frame(idLev, x, y)
 
@@ -395,6 +401,11 @@ p1 + p2 + p3
 #
 
 # PCA ----
+
+data = log2(data+1)
+prin_comp_data = data
+pca = prcomp(prin_comp_data, center = FALSE, scale. = FALSE)
+pc_pct_variance = (pca$sdev^2)/sum(pca$sdev^2)
 
 PCA <- prcomp(t(log2(count+1)), scale. = FALSE) 
 
@@ -426,6 +437,10 @@ PCAdf %>%
   coord_fixed(ratio = sd_ratio) +
   scale_color_brewer(palette = "Set1")
   # facet_grid(~ Sample_Type)
+
+# Correlation heatmap
+
+sample_cor = cor(data, method='pearson', use='pairwise.complete.obs')
 
 
 # Prevalence of features ----
@@ -492,23 +507,15 @@ ptop / pbottom
 # Normalized vs raw data count ----
 # Rarefaction will be useful in evaluations of gene discovery using next-generation sequencing technologies as an analytical approach from theoretical ecology (rarefaction) to evaluate depth of sequencing coverage relative to gene discovery ... Rarefaction suggests that normalization has little influence on the efficiency of gene discovery, at least when working with thousands of reads from a single tissue type. (Hale, M. C., McCormick, et al 2009)
 
-
-rs <- rowSums(round(count))
-
-quantile(rs)
-
 library(vegan)
 
-Srar <- rarefy(round(count), min(rs))
-
-head(Srar)
 
 # ggrare
 count %>% arrange(desc(rowSums(.))) %>% 
   # slice_head(n = 1000) -> x
-  slice_sample(n = 1000, replace = TRUE) -> x
+  slice_sample(n = 1000, replace = TRUE) -> m
 
-x <- t(round(x))
+x <- t(round(m))
 
 x <- as.data.frame(x)
 
@@ -524,6 +531,7 @@ step = 1000 # number: increment of the sequence.
 se = TRUE
 
 rarefun <- function(i) {
+  
   cat(paste("rarefying sample", rownames(x)[i]), sep = "\n")
   n <- seq(1, tot[i], by = step)
   if (n[length(n)] != tot[i]) {
@@ -549,7 +557,7 @@ labels <- data.frame(x = tot, y = S, Sample = rownames(x)) %>%
 
 ggplot(data = out, aes(x = Size, y = `.S`, 
   group = Sample, color = g)) +
-  facet_wrap(~g) +
+  # facet_wrap(~g) +
   geom_line() + 
   geom_text(data = labels, ggplot2::aes(x,  y, label = Sample, color = g), 
     size = 4, 
@@ -561,6 +569,42 @@ ggplot(data = out, aes(x = Size, y = `.S`,
 p + theme_classic() +
   theme(panel.border = element_blank())
 
+# Normalized (hard to run, therefore use n samples)
+
+x <-  edgeR::cpm(m[, 1:4]) %>% as.data.frame()
+
+x <- t(round(x))
+
+x <- as.data.frame(x)
+
+tot <- rowSums(x)
+
+S <- rowSums(x > 0)
+
+nr <- nrow(x)
+
+outN <- lapply(seq_len(nr), rarefun)
+
+outN <- do.call(rbind, outN)
+
+out %>% filter(Sample %in% unique(outN$Sample)) -> outR
+
+outN %>% 
+  as_tibble() %>%
+  mutate(g = substr(Sample, 1, 1)) %>%
+  mutate(g = paste0(g, '-N')) %>%
+  rbind(., outR) -> outNp
+
+unique(outNp$Sample)
+
+ggplot(data = outNp, aes(x = Size, y = `.S`, 
+  group = Sample, color = g)) +
+  facet_wrap(~g, scales = 'free_x') +
+  geom_line() + 
+  geom_ribbon(aes(ymin = .S - .se, 
+    ymax = .S + .se, color = NULL, fill = g), alpha = 0.2) +
+  theme_classic() +
+  labs(x = "Sequence Sample Size", y = "# Genes")
 
 # DESEQ2 ----
 
