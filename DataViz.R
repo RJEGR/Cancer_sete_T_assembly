@@ -272,11 +272,6 @@ tbl %>%
 
 # Quantification ----
 
-rm(list = ls())
-
-options(stringsAsFactors = FALSE)
-
-library(tidyverse)
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
 
@@ -416,13 +411,56 @@ ggplot(ggdf, aes(x, y)) +
 
 p+ p1 + p3 
 
-#
+
+# boxplot of reads ----
+
+n_genes %>%
+  mutate(g = substr(name, 1,1)) %>%
+  arrange(desc(pct)) %>%
+  mutate(name = factor(name, levels = unique(name))) %>%
+  ggplot() + geom_col(aes(x = name, y = Raw), fill = 'black') +
+  labs(x = '', y = 'Total genes') +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90,
+    hjust = 1, vjust = 1, size = 10)) -> pbottom
+# ?gtsummary::tbl_survfit() to retrive probs
+
+qprobs <- function(x) { 
+  x <- x[x > 1]
+  quantile(x, probs = c(0.05, 0.25, 0.5, 0.75, 0.95))
+}
+
+apply(log2(count+1), 2, qprobs) %>% 
+  t() %>%
+  as_tibble(rownames = 'id') -> probs_df
+
+probs_df %>%
+  ggplot(., 
+    aes(x = id, ymin = `5%`, lower = `25%`,
+      middle = `50%`, upper = `75%`, ymax = `95%`)) +
+  geom_errorbar(width = 0.3, position = position_dodge(0.6)) +
+  geom_boxplot(width = 0.5, stat = 'identity', position = position_dodge(0.6)) +
+  labs(y = expression(log[2]~ 'Reads'), x = '') +
+  # ylim(1, 5) + 
+  theme_classic() +
+  theme(
+    panel.border = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.line.x = element_blank()) -> ptop
+
+
+library(patchwork)
+
+ptop / pbottom
+
+
 
 # PCA ----
 
 data = log2(count+1)
 
-PCA = prcomp(data, center = FALSE, scale. = FALSE)
+PCA = prcomp(t(data), center = FALSE, scale. = FALSE)
 
 percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
 
@@ -430,33 +468,62 @@ sd_ratio <- sqrt(percentVar[2] / percentVar[1])
 
 PCAdf <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
 
-PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>%
-  mutate(cluster = paste0('C', value)) %>% select(-value) -> hclust_res
+PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>% mutate(cluster = paste0('C', value)) %>% select(-value) -> hclust_res
 
 PCAdf %>%
   mutate(id = rownames(.)) %>%
-  left_join(hclust_res) %>%
   mutate(g = substr(id, 1,1)) %>%
+  left_join(hclust_res) %>%
   # left_join(mtd) %>%
   ggplot(., aes(PC1, PC2)) +
-  ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
+  # ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
   # geom_point(size = 5, alpha = 0.9) +
   geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
-  geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
+  # geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
   geom_text(aes(label = id, color = g), alpha = 1) +
   labs(caption = '') +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
-  theme_bw(base_family = "GillSans", base_size = 16) +
+  theme_classic(base_family = "GillSans", base_size = 16) +
   theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
-  coord_fixed(ratio = sd_ratio) +
-  scale_color_brewer(palette = "Set1")
-  # facet_grid(~ Sample_Type)
+  # coord_fixed(ratio = sd_ratio) +
+  scale_color_brewer('',palette = "Set1")
 
 # Correlation heatmap
 
 sample_cor = cor(data, method='pearson', use='pairwise.complete.obs')
+sample_dist = dist(t(data), method='euclidean')
+hc_samples = hclust(sample_dist, method='complete')
 
+hc_order <- hc_samples$labels[hc_samples$order]
+
+sample_cor %>% 
+  as_tibble(rownames = 'Sample') %>%
+  pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
+  mutate(Sample = factor(Sample, levels = hc_order)) %>%
+  mutate(g = substr(Sample, 1,1)) -> sample_cor_long
+
+sample_cor_long %>% distinct(Sample, g) %>% mutate(col = ifelse(g %in% 'C', 'red', 'blue')) -> coldf 
+
+structure(coldf$col, names =  as.character(coldf$Sample)) -> axis_col
+
+library(ggh4x)
+
+sample_cor_long %>%
+  ggplot(aes(x = Sample, y = name, fill = cor)) + 
+  # geom_tile(color = 'white', size = 0.2) +
+  geom_raster() + 
+  # geom_text(aes(label = cor), color = 'white') +
+  theme_classic(base_size = 12, base_family = "GillSans") +
+  scale_fill_viridis_c(name = "Pearson", direction = -1) +
+  # scale_x_discrete(position = 'top') +
+  labs(x = '', y = '') +
+  ggh4x::scale_y_dendrogram(hclust = hc_samples) +
+  theme(axis.text.x = element_text(angle = 90, 
+    hjust = 1, vjust = 1, size = 10, color = axis_col),
+    axis.text.y = element_text(color = axis_col),
+    axis.ticks.length = unit(5, "pt")) -> pheat
+  # ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top')
 
 # Prevalence of features ----
 
@@ -486,39 +553,11 @@ dat_text <- prevelancedf %>% group_by(Prevalence) %>% tally() %>%
 p1 + geom_text(
   data    = dat_text, family = "GillSans",
   mapping = aes(x = -Inf, y = -Inf, label = paste0(n, " genes")),
-  hjust   = -1,
-  vjust   = -2
-) + theme_classic(base_size = 7, base_family = "GillSans") +
+  hjust   = -1, vjust   = -2, label.size = 0.2) + 
+  theme_classic(base_size = 7, base_family = "GillSans") +
   labs(x = expression(~Log[2]~('TotalAbundance'~+1)), y = "")
 
 # 
-
-# boxplot
-
-
-count %>% 
-  pivot_longer(cols = all_of(cols), names_to = 'id', values_to = 'count') %>% 
-  filter(count > 1) -> count_longer
-
-
-count_longer %>% mutate(count = log2(count+1)) %>% group_by(id) %>% summarise(q = quantile(count)) -> long_summ
-
-long_summ %>%
-  ungroup() %>%
-  left_join(hclust_res) %>%
-  arrange(match(cluster, cmatch)) %>%
-  mutate(id = factor(id, levels = unique(id))) %>%
-  ggplot(aes(x = id, y = q, fill = cluster, color = cluster)) +
-  stat_boxplot(geom ='errorbar', width = 0.3, position = position_dodge(0.6)) +
-  geom_boxplot(width = 0.3, position = position_dodge(0.6), outlier.alpha = 0.5) +
-  labs(y = expression(log[2]), x = '') +
-  ylim(1, 5) + theme(legend.position = 'none') -> ptop
-
-library(patchwork)
-
-ptop / pbottom
-
-
 # Normalized vs raw data count ----
 # Rarefaction will be useful in evaluations of gene discovery using next-generation sequencing technologies as an analytical approach from theoretical ecology (rarefaction) to evaluate depth of sequencing coverage relative to gene discovery ... Rarefaction suggests that normalization has little influence on the efficiency of gene discovery, at least when working with thousands of reads from a single tissue type. (Hale, M. C., McCormick, et al 2009)
 
