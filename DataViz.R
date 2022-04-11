@@ -291,7 +291,6 @@ read_tsv <- function(f) {
   
   df <- read.delim(f, sep = "\t", header = T, row.names = 1)
   df %>% as_tibble(df) %>% mutate(g = g)
-  #return(df)
 }
 
 # mtd <- read.csv(file = paste0(path, 'Mapping_file_FINAL.csv'))
@@ -302,14 +301,15 @@ head(df <- do.call(rbind, df))
 
 df %>% distinct(g)
 
+# Select isoforms count
 
 count_raw <- df %>% filter(g %in% 'Isoform') %>% select(-g)
-
-# count <- edgeR::cpm(count) %>% as.data.frame()
 
 nrow(count_raw)
 
 apply(count_raw, 2, function(x) sum(x > 0)) -> Total_genes
+
+# Filter data by removing low-abundance genes
 
 nrow(count <- count_raw[rowSums(edgeR::cpm(count_raw)) > 1,])
 
@@ -323,15 +323,32 @@ names(n_genes) <- c('name','Raw', 'Filt')
 
 n_genes %>% mutate(pct = Raw - Filt) -> n_genes
 
+# Total genes
+
 n_genes %>%
   mutate(g = substr(name, 1,1)) %>%
   arrange(desc(pct)) %>%
   mutate(name = factor(name, levels = unique(name))) %>%
-  ggplot() + geom_col(aes(x = name, y = pct, fill = g)) +
+  ggplot() + geom_col(aes(x = name, y = Raw), fill = 'black') +
+  labs(x = '', y = 'Total genes') +
+  coord_flip() +
+  theme_classic() -> p
+
+n_genes %>%
+  mutate(g = substr(name, 1,1)) %>%
+  arrange(desc(pct)) %>%
+  mutate(name = factor(name, levels = unique(name))) %>%
+  ggplot() + geom_col(aes(x = name, y = pct)) +
   labs(x = '', y = 'Removed genes') +
   coord_flip() +
   theme_classic() +
-  scale_fill_brewer('', palette = "Set1") -> p1
+  scale_fill_brewer('', palette = "Set1") +
+  theme(
+    legend.position = 'none',
+    panel.border = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank()) -> p1
 
 # Is a linearity between singletones and abundances?
 # Raw barplot ----
@@ -363,12 +380,13 @@ n_reads %>%
   mutate(g = substr(name, 1,1)) %>%
   mutate(name = factor(name, levels = idLev)) %>%
   ggplot() +
-  geom_col(aes(x = name, y = pct, fill = g)) +
+  geom_col(aes(x = name, y = pct)) +
   labs(x = '', y = 'Removed reads') +
   coord_flip() +
   scale_fill_brewer('', palette = "Set1") +
   theme_classic() +
   theme(
+    legend.position = 'top',
     panel.border = element_blank(),
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
@@ -396,18 +414,15 @@ ggplot(ggdf, aes(x, y)) +
   theme_bw() +
   theme(panel.border = element_blank()) -> p3
 
-p1 + p2 + p3
+p+ p1 + p3 
 
 #
 
 # PCA ----
 
-data = log2(data+1)
-prin_comp_data = data
-pca = prcomp(prin_comp_data, center = FALSE, scale. = FALSE)
-pc_pct_variance = (pca$sdev^2)/sum(pca$sdev^2)
+data = log2(count+1)
 
-PCA <- prcomp(t(log2(count+1)), scale. = FALSE) 
+PCA = prcomp(data, center = FALSE, scale. = FALSE)
 
 percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
 
