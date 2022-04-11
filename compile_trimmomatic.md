@@ -644,6 +644,36 @@ $RUN/autoTrinotate.pl --Trinotate_sqlite Trinotate.sqlite --transcripts $fasta -
 exit
 ```
 
+At the end
+
+```bash
+TRINO=/LUSTRE/apps/bioinformatica/Trinotate/
+export PATH=$TRINO:$PATH 
+
+Trinotate Trinotate.sqlite init --gene_trans_map genes_trans_map --transcript_fasta transcripts.fa --transdecoder_pep transcripts.fa.transdecoder.pep
+
+# 1) Resultados a nivel proteina:
+
+Trinotate Trinotate.sqlite LOAD_swissprot_blastp swissprot.blastp.outfmt6
+Trinotate Trinotate.sqlite LOAD_pfam TrinotatePFAM.out
+Trinotate Trinotate.sqlite LOAD_signalp signalp.out
+# Trinotate Trinotate.sqlite LOAD_tmhmm tmhmm.out
+
+# 2) Resultados a nivel RNA
+Trinotate Trinotate.sqlite  LOAD_swissprot_blastx swissprot.blastx.outfmt6
+# Trinotate Trinotate.sqlite LOAD_rnammer good.Trinity.fasta.rnammer.gff
+Trinotate Trinotate.sqlite report > Trinotate.xls 
+
+```
+
+
+
+Then download
+
+```bash
+scp rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/annotation/Trinotate.xls .
+```
+
 ### 7) Quantification
 
 7.1) RSEM
@@ -710,19 +740,13 @@ Then, prepare matrix for Differential Expression Analysis
 mkdir DiffExp
 cd DiffExp
 
-ls ../C*/*.isoforms.results > isoforms.results
-ls ../P*/*.isoforms.results >> isoforms.results
+ls -d ../quantification/*/*.isoforms.results > isoforms.results
 
 module load R-3.5.0_bio
 
 UTILS=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/util
 
-$UTILS/abundance_estimates_to_matrix.pl \
-        --gene_trans_map genes_trans_map \
-        --est_method RSEM \
-        --out_prefix Isoforms \
-        --quant_files isoforms.results \
-        --name_sample_by_basedir
+$UTILS/abundance_estimates_to_matrix.pl --gene_trans_map genes_trans_map --est_method RSEM --out_prefix abundance --quant_files isoforms.results --name_sample_by_basedir
 ```
 
 And download
@@ -737,7 +761,9 @@ Additionally, prepera Exploratory data analysis
 PTR=/LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.5.1/Analysis/DifferentialExpression
 export PATH=$PTR:$PATH
 
-sbatch PtR.sh Isoforms.isoform.counts.matrix samples.file.sbst
+module load R-3.5.0_bio
+
+sbatch PtR.sh abundance.isoform.counts.matrix sam_file
 ```
 
 Then
@@ -745,10 +771,6 @@ Then
 ```bash
 scp -r rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/DiffExp/figures/ .
 ```
-
-
-
-
 
 7.) Stringtie to Ballow (Para implementar estar version, es neceasrio generar el alineamiento por biblioteca en el paso de `hisat2 > sam2bam > merge sorted.bam` para generar la tabla de abundancia sample-to-sample) Por ejemplo: `/Users/cigom/Documents/DOCTORADO/stringTie`
 
@@ -784,10 +806,6 @@ stringtie genome_snp_tran_vs_reads_f_and_reads_r_output.sorted.bam -B -G Homo_sa
 
 ```
 
-
-
-
-
 Trinity (Failed to run)
 
 ```bash
@@ -820,5 +838,75 @@ CMD: /LUSTRE/apps/bioinformatica/trinityrnaseq-Trinity-v2.8.5/util/..//Inchworm/
 -reading Kmer occurrences...-reading Kmer occurrences...
 
 terminate called after throwing an instance of 'std::bad_alloc'
+```
+
+Error during `/LUSTRE/bioinformatica_data/genomica_funcional/bin/Trinotate/util/rnammer_support/RnammerTranscriptome.pl --transcriptome transcripts.fa --path_to_rnammer /LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/rnammer`
+
+
+
+```bash
+#!/bin/sh
+## Directivas
+#SBATCH --job-name=rnamer
+#SBATCH --output=slurm-%j.log
+#SBATCH --error=slurm-%j.err
+#SBATCH -N 1
+#SBATCH --mem=100GB
+#SBATCH --ntasks-per-node=24
+#SBATCH -t 15-00:00:00
+#SBATCH -p d15
+
+
+HMMER=/LUSTRE/bioinformatica_data/genomica_funcional/bin/RNAMMER2_TRINOTATE/hmmer-2.3
+
+#exporting paths:
+export PATH=$HMMER:$PATH
+
+/LUSTRE/bioinformatica_data/genomica_funcional/bin/Trinotate/util/rnammer_support/RnammerTranscriptome.pl --transcriptome transcripts.fa --path_to_rnammer /LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/rnammer
+# /LUSTRE/bioinformatica_data/genomica_funcional/bin/RNAMMER2_TRINOTATE/hmmer-2.3
+
+exit
+
+```
+
+
+
+```bash
+SuperScaffold 100
+acc: STRG.106564.1
+
+Done.
+
+CMD: perl /LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/rnammer -S euk -m tsu,lsu,ssu -gff tmp.superscaff.rnammer.gff < transcriptSuperScaffold.fasta
+$VAR1 = {
+          'sequence' => './temp.2598.fsa',
+          'global_fullmodel_score' => '0',
+          'flankStop' => '4500',
+          'mode' => 'silent',
+          'flankBegin' => '4500',
+          'feature' => 'rRNA',
+          'domain_fullmodel_evalue' => '1e-05',
+          'domain_fullmodel_score' => '0',
+          'postmodel' => '/LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/lib/euk.lsu.rnammer.hmm',
+          'tempdir' => '.',
+          'id' => '100000006187698955',
+          'global_spottermodel_evalue' => '1e-05',
+          'spottermodel' => '/LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/lib/euk.lsu.rnammer.initial.hmm',
+          'global_spottermodel_score' => '0',
+          'description' => '28s_rRNA',
+          'xml_output' => './2598.lsu.xml',
+          'global_fullmodel_evalue' => '1e-05',
+          'domain_spottermodel_score' => '0',
+          'domain_spottermodel_evalue' => '1e-05',
+          'hmmsearch' => '/LUSTRE/apps/bioinformatica/hmmer-2.3.2/bin/hmmsearch',
+          'config' => './2598.lsu.cf'
+        };
+apply_revcompl(): entry 1 (transcriptSuperScaffold): 1223061233 bp
+fasta entry: 1
+STRAND: pos
+./100000006187698955.1.pos.fsa
+build_jobs(): running ./100000006187698955.1.pos.fsa on spotter model
+write_fasta(): Writing sequence to './100000006187698955.1.pos.fsa'...(1223061233 bases)
+CMD: /LUSTRE/apps/bioinformatica/hmmer-2.3.2/bin/hmmsearch --compat --domE 1e-05 --domT 0 -E 1e-05 -T 0 /LUSTRE/bioinformatica_data/genomica_funcional/bin/rnammer/lib/euk.lsu.rnammer.initial.hmm "./100000006187698955.1.pos.fsa" > "./100000006187698955.1.pos.fsa.hmmsearchresult"
 ```
 

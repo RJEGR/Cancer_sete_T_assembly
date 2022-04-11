@@ -9,7 +9,7 @@ library(patchwork)
 
 colNames <- c("Both Surviving",	"Forward Only",	"Reverse Only",	"Dropped")
 
-RColorBrewer::display.brewer.all() # Revisamos todas las paletas de colores que tenemos
+# RColorBrewer::display.brewer.all() # Revisamos todas las paletas de colores que tenemos
 
 getPalette <- RColorBrewer::brewer.pal(length(colNames), 'Set1')
 
@@ -278,7 +278,7 @@ options(stringsAsFactors = FALSE)
 
 library(tidyverse)
 
-path <- '~/Documents/DOCTORADO/DiffExp/'
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
 
 pattern_f <- 'counts.matrix'
 
@@ -294,7 +294,7 @@ read_tsv <- function(f) {
   #return(df)
 }
 
-mtd <- read.csv(file = paste0(path, 'Mapping_file_FINAL.csv'))
+# mtd <- read.csv(file = paste0(path, 'Mapping_file_FINAL.csv'))
 
 df <- lapply(file, read_tsv)
 
@@ -302,12 +302,97 @@ head(df <- do.call(rbind, df))
 
 df %>% distinct(g)
 
-count <- df %>% filter(g %in% 'Isoform') %>% select(-g)
 
-count <- edgeR::cpm(count) %>% as.data.frame()
+count_raw <- df %>% filter(g %in% 'Isoform') %>% select(-g)
 
-nrow(count)
-nrow(count <- count[rowSums(count) > 1,])
+# count <- edgeR::cpm(count) %>% as.data.frame()
+
+nrow(count_raw)
+
+apply(count_raw, 2, function(x) sum(x > 0)) -> Total_genes
+
+nrow(count <- count_raw[rowSums(edgeR::cpm(count_raw)) > 1,])
+
+# How singletones are per sample?
+
+apply(count, 2, function(x) sum(x > 0)) -> filtered_genes
+
+cbind(as_tibble(Total_genes, rownames = 'name'), as_tibble(filtered_genes)) -> n_genes
+
+names(n_genes) <- c('name','Raw', 'Filt')
+
+n_genes %>% mutate(pct = Raw - Filt) -> n_genes
+
+n_genes %>%
+  arrange(desc(pct)) %>%
+  mutate(name = factor(name, levels = unique(name))) %>%
+  ggplot() + geom_col(aes(x = name, y = pct), fill = 'black') +
+  labs(x = '', y = 'Removed genes') +
+  coord_flip() +
+  theme_classic() -> p1
+
+# Is a linearity between singletones and abundances?
+# Raw barplot ----
+
+n_genes %>% arrange(desc(pct)) %>% pull(name) -> idLev
+
+count_raw %>% 
+  pivot_longer(cols = names(count_raw), 
+    values_to = 'Raw') %>%
+  filter(Raw > 0) %>%
+  group_by(name) %>%
+  summarise(Raw = sum(Raw)) -> Total_size
+
+# vs filtered
+
+count %>% 
+  pivot_longer(cols = names(count), 
+    values_to = 'Filt') %>% 
+  filter(Filt > 0) %>%
+  group_by(name) %>%
+  summarise(Filt = sum(Filt)) -> Filt_size
+
+Total_size %>% 
+  left_join(Filt_size) %>%
+  arrange(desc(Raw)) %>%
+  mutate(pct = Raw - Filt) -> n_reads
+
+
+n_reads %>%
+  mutate(name = factor(name, levels = idLev)) %>%
+  ggplot() +
+  geom_col(aes(x = name, y = pct)) +
+  labs(x = '', y = 'Removed reads') +
+  coord_flip() +
+  theme_classic() +
+  theme(
+    panel.border = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank()) -> p2
+
+# p1 + p2
+
+n_reads %>% arrange(match(idLev,name)) %>% pull(pct) -> x
+n_genes %>% arrange(match(idLev,name)) %>% pull(pct) -> y
+
+ggdf <- data.frame(idLev, x, y)
+
+# Linearity between genes and reads
+
+ggplot(ggdf, aes(x, y)) + 
+  geom_smooth(method = "lm", linetype="dashed", size = 0.5, alpha=0.5, 
+    se = TRUE, na.rm = TRUE) +
+  ggpubr::stat_cor(method = "pearson", cor.coef.name = "R", p.accuracy = 0.001) +
+  geom_point() +
+  # geom_text(aes(label = idLev)) +
+  labs(x = 'Reads', y = 'Genes') +
+  theme_bw() +
+  theme(panel.border = element_blank()) -> p3
+
+p1 + p2 + p3
+
+#
 
 # PCA ----
 
@@ -317,21 +402,22 @@ percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
 
 sd_ratio <- sqrt(percentVar[2] / percentVar[1])
 
-dtvis <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
+PCAdf <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
 
-dtvis %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 7) %>% as_tibble(rownames = 'id') %>%
+PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>%
   mutate(cluster = paste0('C', value)) %>% select(-value) -> hclust_res
 
-dtvis %>%
+PCAdf %>%
   mutate(id = rownames(.)) %>%
   left_join(hclust_res) %>%
-  left_join(mtd) %>%
+  mutate(g = substr(id, 1,1)) %>%
+  # left_join(mtd) %>%
   ggplot(., aes(PC1, PC2)) +
-  # ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
+  ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
   # geom_point(size = 5, alpha = 0.9) +
   geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
   geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
-  geom_text(aes(label = id, color = Sample_Type), alpha = 1) +
+  geom_text(aes(label = id, color = g), alpha = 1) +
   labs(caption = '') +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
@@ -372,39 +458,10 @@ p1 + geom_text(
   mapping = aes(x = -Inf, y = -Inf, label = paste0(n, " genes")),
   hjust   = -1,
   vjust   = -2
-) + theme_classic(base_size = 10, base_family = "GillSans") +
+) + theme_classic(base_size = 7, base_family = "GillSans") +
   labs(x = expression(~Log[2]~('TotalAbundance'~+1)), y = "")
 
 # 
-
-cmatch <-distinct(hclust_res, cluster) %>% pull()
-
-cols <- colnames(count)
-
-
-# barplot 
-
-df %>% filter(g %in% 'Isoform') %>% select(-g)  -> raw 
-
-nrow(raw)
-nrow(raw <- raw[rowSums(raw) > 1,])
-
-raw %>% pivot_longer(cols = all_of(cols), names_to = 'id', values_to = 'count') -> raw_longer
-
-raw_longer %>%
-  filter(count > 0) %>%
-  group_by(id) %>% 
-  summarise(count = sum(count)) %>%
-  left_join(hclust_res) %>%
-  arrange(match(cluster, cmatch)) %>%
-  mutate(id = factor(id, levels = unique(id))) %>%
-  ggplot(aes(y = count, x = id, fill = cluster)) +
-  geom_col() +
-  labs(x = '', 'CPM') +
-  theme_bw(base_size = 10, base_family = "GillSans") +
-  theme(axis.text.x = element_text(angle = 45, 
-    hjust = 1, vjust = 1, size = 10),
-    legend.position = 'none') -> pbottom
 
 # boxplot
 
@@ -430,3 +487,141 @@ long_summ %>%
 library(patchwork)
 
 ptop / pbottom
+
+
+# Normalized vs raw data count ----
+# Rarefaction will be useful in evaluations of gene discovery using next-generation sequencing technologies as an analytical approach from theoretical ecology (rarefaction) to evaluate depth of sequencing coverage relative to gene discovery ... Rarefaction suggests that normalization has little influence on the efficiency of gene discovery, at least when working with thousands of reads from a single tissue type. (Hale, M. C., McCormick, et al 2009)
+
+
+rs <- rowSums(round(count))
+
+quantile(rs)
+
+library(vegan)
+
+Srar <- rarefy(round(count), min(rs))
+
+head(Srar)
+
+# ggrare
+count %>% arrange(desc(rowSums(.))) %>% 
+  # slice_head(n = 1000) -> x
+  slice_sample(n = 1000, replace = TRUE) -> x
+
+x <- t(round(x))
+
+x <- as.data.frame(x)
+
+tot <- rowSums(x)
+
+S <- rowSums(x > 0)
+
+nr <- nrow(x)
+
+# i <- 1
+step = 1000 # number: increment of the sequence.
+
+se = TRUE
+
+rarefun <- function(i) {
+  cat(paste("rarefying sample", rownames(x)[i]), sep = "\n")
+  n <- seq(1, tot[i], by = step)
+  if (n[length(n)] != tot[i]) {
+    n <- c(n, tot[i])
+  }
+  y <- vegan::rarefy(x[i, ,drop = FALSE], n, se = se)
+  if (nrow(y) != 1) {
+    rownames(y) <- c(".S", ".se")
+    return(data.frame(t(y), Size = n, Sample = rownames(x)[i]))
+  } else {
+    return(data.frame(.S = y[1, ], Size = n, Sample = rownames(x)[i]))
+  }
+}
+
+out <- lapply(seq_len(nr), rarefun)
+
+out <- do.call(rbind, out)
+
+out <- out %>% mutate(g = substr(Sample, 1, 1))
+
+labels <- data.frame(x = tot, y = S, Sample = rownames(x)) %>% 
+  mutate(g = substr(Sample, 1, 1))
+
+ggplot(data = out, aes(x = Size, y = `.S`, 
+  group = Sample, color = g)) +
+  facet_wrap(~g) +
+  geom_line() + 
+  geom_text(data = labels, ggplot2::aes(x,  y, label = Sample, color = g), 
+    size = 4, 
+    hjust = 0) +
+  labs(x = "Sequence Sample Size", y = "# Genes") +
+  geom_ribbon(aes(ymin = .S - .se, 
+    ymax = .S + .se, color = NULL, fill = g), alpha = 0.2) -> p 
+
+p + theme_classic() +
+  theme(panel.border = element_blank())
+
+
+# DESEQ2 ----
+
+hclust_res %>% mutate(g = substr(id, 1,1)) %>%
+  select(-id) %>% 
+  mutate(g = factor(g, levels = unique(g))) %>%
+  as.data.frame() -> colData
+
+rownames(colData) <- hclust_res$id  
+
+library(DESeq2)
+
+count <- round(count)
+
+ddsFullCountTable <- DESeqDataSetFromMatrix(
+  countData = count,
+  colData = colData,
+  design = ~ g ) # if not rep use design = ~ 1
+
+# dds <- estimateSizeFactors(ddsFullCountTable)
+
+dds <- DESeq(ddsFullCountTable)
+
+contrast <- levels(colData$g)
+
+get_res <- function(dds, contrast) {
+  
+  sA <- contrast[1]
+  sB <- contrast[2]
+  
+  contrast <- as.character(DESeq2::design(dds))[2]
+  
+  contrast <- c(contrast, sA, sB)
+  
+  res = results(dds, contrast)
+  
+  baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$conditions == sA])
+  baseMeanB <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$conditions == sB])
+  
+  res %>%
+    as.data.frame(.) %>%
+    cbind(baseMeanA, baseMeanB, .) %>%
+    cbind(sampleA = sA, sampleB = sB, .) %>%
+    as_tibble(rownames = "ids") %>%
+    mutate(padj = ifelse(is.na(padj), 1, padj)) %>%
+    mutate_at(vars(!matches("ids|sample|pvalue|padj")),
+      round ,digits = 2)
+}
+
+res <- get_res(dds, contrast)
+
+res <- prep_DE_data(res, padj_in = , logfc_in = 2) %>%
+  drop_na(cc)
+
+# Test run_DESEQ2(count, g)
+
+
+logfc_in <- 2
+padj_in <- 0.05 
+
+res %>%
+  ggplot(aes(y = -log10(pvalue), x = logFC)) +
+  geom_point(aes(color = cc))
+
