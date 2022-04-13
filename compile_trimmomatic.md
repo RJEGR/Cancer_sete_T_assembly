@@ -657,7 +657,7 @@ Trinotate Trinotate.sqlite init --gene_trans_map genes_trans_map --transcript_fa
 Trinotate Trinotate.sqlite LOAD_swissprot_blastp swissprot.blastp.outfmt6
 Trinotate Trinotate.sqlite LOAD_pfam TrinotatePFAM.out
 Trinotate Trinotate.sqlite LOAD_signalp signalp.out
-# Trinotate Trinotate.sqlite LOAD_tmhmm tmhmm.out
+Trinotate Trinotate.sqlite LOAD_tmhmm tmhmm.out
 
 # 2) Resultados a nivel RNA
 Trinotate Trinotate.sqlite  LOAD_swissprot_blastx swissprot.blastx.outfmt6
@@ -666,12 +666,22 @@ Trinotate Trinotate.sqlite report > Trinotate.xls
 
 ```
 
+Prepare gene ontology list
+
+```bash
+TRINO=/LUSTRE/apps/bioinformatica/Trinotate/util/
+export PATH=$TRINO:$PATH 
+extract_GO_assignments_from_Trinotate_xls.pl  --Trinotate_xls Trinotate.xls  -T > Trinotate_report.xls.gene_ontology
+```
+
 
 
 Then download
 
 ```bash
 scp rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/annotation/Trinotate.xls .
+
+rgomez@omica:/LUSTRE/bioinformatica_data/genomica_funcional/rgomez/human_cancer/annotation/Trinotate_report.xls.gene_ontology .
 ```
 
 ### 7) Quantification

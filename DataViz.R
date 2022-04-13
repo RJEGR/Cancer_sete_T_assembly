@@ -136,7 +136,7 @@ options(stringsAsFactors = FALSE)
 
 library(tidyverse)
 
-path <- '~/Documents/DOCTORADO/summaries_busco/summaries_snp_trans_prev/full_tables/'
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/summaries_busco/summaries_snp_trans_prev/full_tables/'
 
 pattern_f <- 'tsv'
 
@@ -273,9 +273,9 @@ tbl %>%
 # Quantification ----
 
 
-path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp'
 
-pattern_f <- 'counts.matrix'
+pattern_f <- 'counts.matrix$'
 
 file <- list.files(path, pattern = pattern_f,  full.names = TRUE)
 
@@ -285,20 +285,24 @@ read_tsv <- function(f) {
   g <- str_to_title(g)
   
   df <- read.delim(f, sep = "\t", header = T, row.names = 1)
-  df %>% as_tibble(df) %>% mutate(g = g)
+  # df %>% as_tibble(df, rownames = 'id') %>% mutate(g = g)
+  return(df)
 }
 
-# mtd <- read.csv(file = paste0(path, 'Mapping_file_FINAL.csv'))
+mtd <- read.csv(file = paste0(path, '/metadata.csv'))
+
+rownames(mtd) <- mtd$sample_id
+
 
 df <- lapply(file, read_tsv)
 
 head(df <- do.call(rbind, df))
 
-df %>% distinct(g)
+# df %>% distinct(g)
 
 # Select isoforms count
 
-count_raw <- df %>% filter(g %in% 'Isoform') %>% select(-g)
+count_raw <- df # %>% filter(g %in% 'Isoform') %>% select(-g)
 
 nrow(count_raw)
 
@@ -306,9 +310,12 @@ apply(count_raw, 2, function(x) sum(x > 0)) -> Total_genes
 
 # Filter data by removing low-abundance genes
 
-nrow(count <- count_raw[rowSums(edgeR::cpm(count_raw)) > 1,])
+keep <- rowSums(edgeR::cpm(count_raw) > 1) >= 2
 
-# How singletones are per sample?
+
+nrow(count <- count_raw[keep,])
+
+# How singletones are per sample? ----
 
 apply(count, 2, function(x) sum(x > 0)) -> filtered_genes
 
@@ -662,34 +669,43 @@ ggplot(data = outNp, aes(x = Size, y = `.S`,
 
 # DESEQ2 ----
 
+
 colors_fc <- c("red2", 
   "#4169E1",
   "forestgreen", "grey30")
 
-hclust_res %>% mutate(g = substr(id, 1,1)) %>%
-  select(-id) %>% 
-  mutate(g = factor(g, levels = unique(g))) %>%
-  as.data.frame() -> colData
+colData <- mtd %>% arrange(match(sample_id, names(count)))
 
-rownames(colData) <- hclust_res$id  
+colData <- mutate_if(colData, is.character, as.factor)
+
+# using relevel, just specifying the reference level:
+
+colData$g2 <- relevel(colData$g2, ref = "Control")
+
+levels(colData$g2)
 
 library(DESeq2)
 
 count <- round(count)
 
+table(colData$g2)
+
 ddsFullCountTable <- DESeqDataSetFromMatrix(
   countData = count,
   colData = colData,
-  design = ~ g ) # if not rep use design = ~ 1
+  design = ~ g1 ) # if not rep use design = ~ 1
 
 # dds <- estimateSizeFactors(ddsFullCountTable)
 
 dds <- DESeq(ddsFullCountTable)
 
-# dds <- estimateSizeFactors(dds)
+# write_rds(dds, file = paste0(path, '/Cancer_vs_Control_dds.rds'))
 
-contrast <- levels(colData$g)
+# dds <- read_rds("~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/Cancer_vs_Control_dds.rds")
 
+# contrast <- levels(colData(dds)$g1)
+contrast <- levels(colData(dds)$g2)
+# contrast <- 
 get_res <- function(dds, contrast) {
   
   sA <- contrast[1]
@@ -697,14 +713,16 @@ get_res <- function(dds, contrast) {
   
   contrast <- as.character(DESeq2::design(dds))[2]
   
+  keepA <- as.data.frame(colData(dds))[,contrast] == sA
+  keepB <- as.data.frame(colData(dds))[,contrast] == sB
+  
   contrast <- c(contrast, sA, sB)
   
   res = results(dds, contrast)
   
-  # dds <- estimateSizeFactors(dds)
   
-  baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$g == sA])
-  baseMeanB <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,colData(dds)$g == sB])
+  baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,keepA])
+  baseMeanB <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,keepB])
   
   res %>%
     as.data.frame(.) %>%
@@ -776,26 +794,39 @@ prep_DE_data <- function(res, padj_in, logfc_in) {
 
 res <- get_res(dds, contrast)
 
-resviz <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2) %>%
+res.p <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2) %>%
   drop_na(cc)
 
 # Test run_DESEQ2(count, g)
 
 
 logfc_in <- 2
+
 padj_in <- 0.05 
 
-resviz %>%
+# volcano ----
+
+res.p %>%
   mutate(pvalue = -log10(pvalue)) %>%
   ggplot(aes(x = logFC, y = pvalue)) +
   geom_point(aes(color = cc), alpha = 3/5) +
   scale_color_manual(name = "", values = colors_fc) + 
   labs(x= expression(Log[2] ~ "Fold Change"), 
     y = expression(-Log[10] ~ "P")) +
-  theme_bw(base_family = "GillSans") +
-  theme(legend.position = "top") 
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = "top") -> pvol
+  # geom_abline(slope = 0, intercept = -log10(padj_in), linetype="dashed", alpha=0.5) 
+  # geom_vline(xintercept = 0, linetype="dashed", alpha=0.5)
 
-resviz %>%
+ggsave(pvol, 
+  filename = "volcano.png", path = path, 
+  width = 8, height = 5)
+
+# res %>% arrange(log2FoldChange)
+# - logfc == Cancer samples
+# + logfc == Control samples
+
+res.p %>%
   mutate(g = ifelse(logFC > 0, 'Control', 'Cancer')) %>%
   group_by(cc,g ) %>% tally() %>%
   filter(cc != 'NS') %>%
@@ -803,12 +834,34 @@ resviz %>%
   geom_bar(aes(x = g, y = n, fill = cc), 
     stat = 'identity', position = position_dodge2()) +
   scale_fill_manual(name = "", values = colors_fc[-4]) +
-  labs(y = '# Genes', x = '') +
-  theme(legend.position = 'none')
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  labs(y = '# Transcripts', x = '') +
+  theme(legend.position = 'top') -> pbar
+
+# ggsave(pbar, 
+#   filename = "diffExp_bar.png", path = path, 
+#   width = 5, height = 5)
+
+res.p %>%
+  filter(cc != 'NS') %>%
+  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  ggplot() +
+  geom_histogram(aes(padj, fill = cc)) +
+  # facet_wrap( cc ~ ., scales = 'free_x') +
+  scale_fill_manual(name = "", values = colors_fc[-4]) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(y = '# Transcripts') -> padjp
+
+pbar / padjp -> savep
+
+ggsave(savep, 
+  filename = "diffExp_bar.png", path = path, 
+  width = 5, height = 5)
 
 # and bar plot
 
-# resviz %>%
+# res.p %>%
 #   filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
 #   pivot_longer(cols = c('baseMeanA', 'baseMeanB')) %>%
 #   group_by(name) %>%
@@ -827,46 +880,409 @@ resviz %>%
 #   facet_grid(~name)
 
 # returno to heatmap to get positions
-resviz %>%
+
+res.p %>%
   filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
-  pull(ids) %>% as.numeric() -> diffexpList
+  pull(ids) -> diffexpList
 
-count[diffexpList,] -> dfheat
+keep <- rownames(count) %in% diffexpList
 
-sample_cor = cor(dfheat, method='pearson', use='pairwise.complete.obs')
-sample_dist = dist(t(dfheat), method='euclidean')
-hc_samples = hclust(sample_dist, method='complete')
+dim(count[keep,] -> DEcount)
 
-hc_order <- hc_samples$labels[hc_samples$order]
+sample_cor = cor(DEcount, method='pearson', use='pairwise.complete.obs')
 
-count %>% 
-  as_tibble(rownames = 'Sample') %>%
-  pivot_longer(cols = colnames(count), values_to = 'count') %>%
-  mutate(name = factor(name, levels = hc_order)) %>%
-  mutate(g = substr(name, 1,1)) %>%
+# superheat::superheat()
+
+dist.method <- 'euclidean'
+linkage.method <- 'complete'
+
+m <- log2(DEcount+1)
+
+hc_samples <- hclust(dist(t(m), method = dist.method), 
+  method = linkage.method)
+
+# sample_dist = dist(t(DEcount), method='euclidean')
+# sample_dist = dist(sample_cor, method='euclidean')
+
+hc_sam_order <- hc_samples$labels[hc_samples$order]
+
+hc_genes <- hclust(dist(m, method = dist.method), 
+  method = linkage.method)
+
+hc_genes_ord <- hc_genes$labels[hc_genes$order]
+
+
+DEcount %>% 
+  as_tibble(rownames = 'id') %>%
+  pivot_longer(cols = colnames(dfheat), values_to = 'count', names_to = 'sample_id') %>%
+  # mutate(sample_id = factor(sample_id, levels = hc_sam_order)) %>%
+  # mutate(id = factor(id, levels = hc_genes_ord)) %>%
+  left_join(mtd) %>%
   filter(count > 0) -> countLong
 
-countLong %>% distinct(name, g) %>% mutate(col = ifelse(g %in% 'C', 'red', 'blue')) -> coldf 
+countLong %>% 
+  distinct(sample_id, g1) %>% 
+  mutate(col = ifelse(g1 %in% 'C', 'red', 'blue')) %>%
+  arrange(match(sample_id, hc_sam_order)) -> coldf 
 
-structure(coldf$col, names =  as.character(coldf$name)) -> axis_col
+structure(coldf$col, names =  as.character(coldf$sample_id)) -> axis_col
 
 library(ggh4x)
 
 countLong %>%
-  ggplot(aes(x = name, y = Sample, fill = log2(count+1))) + 
+  ggplot(aes(x = sample_id, y = id, fill = log2(count+1))) + 
   geom_raster() + 
   theme_classic(base_size = 12, base_family = "GillSans") +
-  ggsci::scale_color_gsea(name = expression(Log[2]~'Count')) +
-  # scale_x_discrete(position = 'top') +
+  scale_fill_viridis_c(name = expression(Log[2]~'(count+1)')) +
   labs(x = '', y = '') +
-  ggh4x::scale_x_dendrogram(hclust = hc_samples) +
+  ggh4x::scale_y_dendrogram(hclust = hc_genes) +
+  ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top') +
   theme(axis.text.x = element_text(angle = 90, 
-    hjust = 1, vjust = 1, size = 10, color = axis_col), 
-    axis.ticks.length = unit(5, "pt"),
+    hjust = 1, vjust = 1, size = 7, color = axis_col), # 
+    axis.ticks.length = unit(10, "pt"),
     # legend.position = 'top',
     panel.border = element_blank(),
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.line.y = element_blank()) -> pheat
-# ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top')
+
+
+pheat + guides(fill = guide_colorbar(barheight = unit(4, "in"),
+  ticks.colour = "black",
+  frame.colour = "black",
+  label.theme = element_text(size = 12))) -> pheat
+
+# pheat + facet_grid(~ g1, scales = 'free_x', space = 'free_x')
+
+ggsave(pheat, 
+  filename = "diffExp_hetmap.png", path = path, 
+  width = 8, height = 8)
+
+# Functional annotation ----
+# test https://yulab-smu.top/biomedical-knowledge-mining-book/index.html
+
+rm(list = ls())
+
+library(tidyverse)
+library(topGO)
+
+runtopGO <- function(topGOdata, topNodes = 20, conservative = TRUE) {
+  
+  RFisher <- runTest(topGOdata, 
+    algorithm = "classic", 
+    statistic = "fisher")
+  
+  # To make this test conservative. Next we will test the enrichment using the Kolmogorov-Smirnov test. We will use the both the classic and the elim method.
+  
+  if(conservative) 
+  {
+    RKS <- runTest(topGOdata, algorithm = "classic", 
+      statistic = "ks")
+    
+    RKS.elim <- runTest(topGOdata, algorithm = "elim", 
+      statistic = "ks")
+    
+    
+    
+    
+    allRes <- GenTable(topGOdata, 
+      classicFisher = RFisher,
+      classicKS = RKS, 
+      elimKS = RKS.elim,
+      orderBy = "elimKS", 
+      ranksOf = "classicFisher", 
+      topNodes = topNodes) 
+  } else {
+    RKS <- runTest(topGOdata, algorithm = "classic", 
+      statistic = "ks")
+    
+    test.stat <- new("weightCount",
+      testStatistic = GOFisherTest,
+      name = "Fisher test", sigRatio = "ratio")
+    
+    weights <- getSigGroups(topGOdata, test.stat)
+    
+    allRes <- GenTable(topGOdata,
+      classic = RFisher,
+      KS = RKS,
+      weight = weights,
+      orderBy = "weight",
+      ranksOf = "classic",
+      topNodes = topNodes)
+    
+    # allRes <- GenTable(object = topGOdata, 
+    #                    elimFisher = RFisher,
+    #                    topNodes = topNodes)
+  }
+  
+  return(allRes)
+}
+
+description <- "complete topGO enrichment using split_annot"
+
+path <- "~/Documents/DOCTORADO/human_cancer_dataset/annot/"
+
+# write_rds(res.p, file = paste0(path, 'Cancer_vs_Control_res_p.rds'))
+res.p <- read_rds(paste0(path, 'Cancer_vs_Control_res_p.rds'))
+
+go_file <- paste0(path, 'Trinotate_report.xls.gene_ontology')
+
+MAP <- topGO::readMappings(go_file)
+
+# geneNames <- sort(unique(as.character(names(MAP))))
+
+# Load semantic similarity data
+
+hsGO <- read_rds(paste0(path, '/hsGO_BP.rds'))
+
+# Prepare semantic similarity data
+
+# hsGO <- GOSemSim::godata('org.Hs.eg.db', ont="BP")
+# hsGOMF <- GOSemSim::godata('org.Hs.eg.db', ont="MF")
+
+# saveRDS(hsGO, file = paste0(path, '/hsGO_BP.rds'))
+# saveRDS(hsGOMF, file = paste0(path, '/hsGO_MF.rds'))
+
+
+# countLong %>% distinct(id) %>% pull(.) %>% as.character() -> query.genes
+
+
+res.p %>% filter(cc ==  'p - value ~ and ~ log[2] ~ FC') -> res.p
+
+res.p %>% filter(logFC > 0) -> query.res.g1
+res.p %>% filter(logFC < 0) -> query.res.g2
+
+query.p.1 <- query.res.g1 %>% pull(padj)
+query.names.1 <- query.res.g1 %>% pull(ids)
+
+query.p.2 <- query.res.g2 %>% pull(padj)
+query.names.2 <- query.res.g2 %>% pull(ids)
+
+
+str(query.names.1) # 3412 diffExp genes (1157 vs 2255 genes) and 
+str(query.names.2) # 3412 diffExp genes (1157 vs 2255 genes) and 
+
+
+topEnrichment <- function(query.p, query.names, MAP, cons = T, onto = "BP") {
+  
+  names(query.p) <- query.names
+  
+  # keep MAP of query genes
+  keep <- names(MAP) %in% names(query.p) 
+  
+  # MAP <- MAP[keep]
+  
+  topGOdata <- new("topGOdata", 
+    ontology = onto, 
+    description = description,
+    allGenes = query.p,
+    # geneSel = function(x) { x == 1 },
+    geneSel = function(x) x,
+    annot = annFUN.gene2GO,
+    # mapping = hsGO, # omit this flag
+    gene2GO = MAP[keep])
+  
+  # run TopGO results 
+  
+  allGO <- usedGO(topGOdata)
+  
+  allRes <- runtopGO(topGOdata, topNodes = length(allGO), conservative = cons)
+  
+  # make p adjustable
+  
+  p.adj.ks <- p.adjust(allRes$classicKS , method="BH")
+  
+  allRes <- cbind(allRes, p.adj.ks)
+  
+  allRes$Term <- gsub(" [a-z]*\\.\\.\\.$", "", allRes$Term)
+  allRes$Term <- gsub("\\.\\.\\.$", "", allRes$Term)
+  
+  return(allRes)
+
+  
+}
+
+# it perform better than other ways
+
+goEnrich_g1 <- topEnrichment(query.p.1, query.names.1, MAP)
+goEnrich_g2 <- topEnrichment(query.p.2, query.names.2, MAP)
+
+nrow(goEnrich_g1)
+nrow(goEnrich_g2)
+
+# sampleA == Control (C), sampleB == Cancer (P)
+# sampleA == Control (C), sampleB == Cancer (P)
+# baseMeanA == +FC, baseMeanB == -FC
+
+
+write.table(goEnrich_g1, file = paste0(path, 'go_enrichment_control_vs_cancer_control'))
+write.table(goEnrich_g2, file = paste0(path, 'go_enrichment_control_vs_cancer_cancer'))
+
+quantile(as.numeric(goEnrich_g1$classicKS))
+quantile(goEnrich_g2$p.adj.ks)
+
+nrow(topGO1.p <- goEnrich_g1[which(goEnrich_g1$classicKS <= 0.05),])
+nrow(topGO2.p <- goEnrich_g2[which(goEnrich_g2$p.adj.ks <= 0.05),])
+
+#
+
+# length(MAP1 <- MAP[names(MAP) %in% query.names.1])
+# length(MAP2 <- MAP[names(MAP) %in% query.names.2])
+# 
+# STRG2GO <- data.frame(ID = rep(names(MAP1),
+#   sapply(MAP1, length)),
+#   GO.ID = unlist(MAP1))
+
+
+# After enrichment analysis, introduce reduction of terms using 
+# Take a while 
+
+# test pipeline from termAnalysis using the moduleTraitRelationshipHeatmap.R code
+
+library(GOSemSim)
+library(rrvgo)
+
+str(goid1 <- sort(unique(topGO1.p$GO.ID))) # using only significant genes
+str(goid2 <- sort(unique(topGO2.p$GO.ID))) # using only significant genes
+
+
+scores1 <- -log(as.numeric(topGO1.p$classicKS))
+scores2 <- -log(as.numeric(topGO2.p$classicKS))
+
+names(scores1) <- topGO1.p$GO.ID
+names(scores2) <- topGO2.p$GO.ID
+
+sort(names(scores2))
+
+# SimMatrix <- calculateSimMatrix(goid, orgdb = 'org.Hs.eg.db', ont="BP", method = 'Wang')
+
+SimMatrix1 <- GOSemSim::termSim(goid1, goid1, semData = hsGO,  method = "Wang")
+SimMatrix2 <- GOSemSim::termSim(goid2, goid2, semData = hsGO,  method = "Wang")
+
+reducedTerms1 <- reduceSimMatrix(SimMatrix, scores1, threshold = 0.9, orgdb = 'org.Hs.eg.db')
+reducedTerms2 <- reduceSimMatrix(SimMatrix2, scores2, threshold = 0.9, orgdb = 'org.Hs.eg.db')
+
+scatterPlot <- function (simMatrix, reducedTerms, size = "score", addLabel = TRUE, 
+  labelSize = 3) 
+{
+  if (!all(sapply(c("ggplot2", "ggrepel"), requireNamespace, 
+    quietly = TRUE))) {
+    stop("Packages ggplot2, ggrepel and/or its dependencies not available. ", 
+      "Consider installing them before using this function.", 
+      call. = FALSE)
+  }
+  x <- cmdscale(as.matrix(as.dist(1 - simMatrix)), eig = TRUE, 
+    k = 2)
+  df <- cbind(as.data.frame(x$points), reducedTerms[match(rownames(x$points), 
+    reducedTerms$go), c("term", "parent", "parentTerm", 
+      "size")])
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = V1, y = V2, color = parentTerm)) + 
+    ggplot2::geom_point(ggplot2::aes(size = size), alpha = 0.5) + 
+    ggplot2::scale_color_discrete(guide = 'none') + 
+    ggplot2::scale_size_continuous(guide = 'none', range = c(0, 25)) + 
+    ggplot2::scale_x_continuous(name = "") + 
+    ggplot2::scale_y_continuous(name = "") + 
+    ggplot2::theme_minimal(base_size = 12, base_family = "GillSans") + 
+    ggplot2::theme(axis.text.x = ggplot2::element_blank(), 
+      axis.text.y = ggplot2::element_blank()) +
+    labs(x = 'Dimension 1', y = 'Dimension 2')
+  if (addLabel) {
+    p + ggrepel::geom_label_repel(aes(label = parentTerm), 
+      data = subset(df, parent == rownames(df)), box.padding = grid::unit(1, 
+        "lines"), size = labelSize, family = "GillSans")
+  }
+  else {
+    p
+  }
+}
+
+
+scatterPlot(SimMatrix1, reducedTerms1) -> sim1plot
+scatterPlot(SimMatrix2, reducedTerms2) -> sim2plot
+
+library(patchwork)
+
+sim1plot + sim2plot -> psave
+
+ggsave(psave, filename = 'reducedTerms_semantic.png', 
+  path = path, 
+  width = 9.5, height = 7.5, dpi = 250)
+
+
+# as barplots
+# g1 == Control (C) and g2 == Cancer (P)
+
+rbind(data.frame(reducedTerms1, g = 'Control'),
+  data.frame(reducedTerms2, g = 'Cancer')) %>%
+  as_tibble() -> reducedTerms
+
+reducedTerms %>%
+  group_by(g, parentTerm) %>%
+  tally() %>%
+  group_by(g) %>%
+  arrange(desc(n)) %>%
+  mutate(parentTerm = factor(parentTerm, 
+    levels = unique(parentTerm))) %>%
+  ggplot() +
+  geom_col(aes(x = parentTerm, y = n, fill = g)) +
+  labs(x = '', y = '# GO terms') +
+  coord_flip() +
+  facet_grid(g ~ ., scales = 'free_y') +
+  theme_bw(base_size = 12, base_family = "GillSans") -> psave
+
+ggsave(psave, filename = 'topGO_reduced_term.png', 
+  path = path, 
+  width = 12, height = 5, dpi = 250)
+
+#
+rbind(data.frame(topGO1.p, g = 'Control'),
+  data.frame(topGO1.p, g = 'Cancer')) %>%
+  as_tibble() -> topGO.p
+
+# Multiple contrast ----
+
+colData <- mtd %>% arrange(match(sample_id, names(count)))
+
+colData <- colData %>% mutate(g2 = ifelse(g1 == 'C', 'Control', g2))
+
+colData <- mutate_if(colData, is.character, as.factor)
+
+# using relevel, just specifying the reference level:
+
+colData$g2 <- relevel(colData$g2, ref = "Control")
+
+levels(colData$g2)
+
+library(DESeq2)
+
+count <- round(count)
+
+table(colData$g2)
+
+ddsFullCountTable <- DESeqDataSetFromMatrix(
+  countData = count,
+  colData = colData,
+  design = ~ g2 ) # if not rep use design = ~ 1
+
+# write_rds(dds, file = paste0(path, '/multiple_contrast_vs_control_dds.rds'))
+dds <- read_rds(paste0(path, '/multiple_contrast_vs_control_dds.rds'))
+
+dds <- DESeq(ddsFullCountTable)
+
+out <- list()
+
+for(i in 2:length(contrast)) {
+  j <- i
+  cat('\nContrast', contrast[c(1,j)], '\n')
+  res <- get_res(dds, contrast[c(1,j)])
+  out[[j]] <- res
+  
+}
+
+do.call(rbind, out) -> res
+
+
+res %>% distinct(sampleA, sampleB)
+
+res.p <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2)
 
