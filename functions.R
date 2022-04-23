@@ -102,3 +102,83 @@ GOenrichment <- function(df, cons = T, onto = "BP", Nodes = Inf) {
   
   
 }
+
+prep_dist_data <- function(df, select_exclusive = T) {
+  
+  # names(df) should contain at least cols:
+  # "ids"            
+  # "sampleB"       
+  #  "log2FoldChange" 
+  # "pvalue" or    "padj" 
+  # "lfcT"
+  
+  
+  if(select_exclusive) {
+    
+    # Select only n_sam == 1 ----
+    
+    df %>% # this is the only input needed
+      dplyr::select(ids, sampleB) %>% 
+      group_by(ids) %>%
+      summarise(n_sam = length(sampleB), 
+        across(sampleB, .fns = list)) -> distinct_trans
+    
+    # Sanity check of correct grouping exclusive ids
+    # Also you can compare against the upset png value bars
+    
+    distinct_trans %>% group_by(n_sam) %>% tally() -> prevalence
+    
+    distinct_trans %>% 
+      filter(n_sam == 1) %>% 
+      mutate(sampleB = unlist(sampleB)) -> distinct_trans
+    
+    cat("\n Prevalence: ",
+      paste0(prevalence$n_sam, 's'), "\n", 
+      "\t",prevalence$n, "\n")
+    
+  } else {
+    df %>% dplyr::select(ids, sampleB) %>% 
+      group_by(sampleB) %>% distinct(ids) -> distinct_trans
+    
+    distinct_trans %>% group_by(sampleB) %>% tally() -> prevalence
+    
+    cat("\n Prevalence: ",
+      paste0(prevalence$sampleB, 's'), "\n", 
+      "\t",prevalence$n, "\n")
+    
+  }
+  
+  
+  
+  
+  
+  # 2) Subset of GO ids based on the distinct transcript dataset ----
+  
+  distinct_trans %>% pull(ids) %>% unique(.) -> query.ids
+  
+  n <- sum(keep <- names(MAP) %in% query.ids) / length(query.ids) 
+  
+  cat('\n % of ids mapped in Gen Ontology: ', n*100, '%\n')
+  
+  STRG2GO <- data.frame(ids = rep(names(MAP[keep]),
+    sapply(MAP[keep], length)),
+    GO.ID = unlist(MAP[keep]), row.names = NULL) %>% as_tibble()
+  
+  # Sanity check: % of recovery querys with go ids
+  # sum(unique(STRG2GO$ids) %in% query.ids) / length(query.ids) 
+  
+  distinct_trans %>% 
+    left_join(STRG2GO, by = "ids") %>%
+    group_by(ids, sampleB) %>%
+    summarise(across(GO.ID, .fns = list), .groups = "drop_last") %>%
+    ungroup() -> distinct_trans
+  
+  # Add p values to the distinct trans
+  distinct_trans %>% 
+    left_join(df %>% dplyr::select(ids, padj, log2FoldChange), 
+      by = "ids") -> distinct_trans
+  
+  
+  return(distinct_trans)
+  
+}
