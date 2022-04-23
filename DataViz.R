@@ -475,26 +475,38 @@ sd_ratio <- sqrt(percentVar[2] / percentVar[1])
 
 PCAdf <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
 
-PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>% mutate(cluster = paste0('C', value)) %>% select(-value) -> hclust_res
+PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>% mutate(cluster = paste0('C', value)) %>% dplyr::select(-value) -> hclust_res
+
+n <- length(unique(mtd$Diagnosis))
+
+getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
+
+axis_col <- structure(getPalette, names = unique(mtd$Diagnosis))
+
 
 PCAdf %>%
-  mutate(id = rownames(.)) %>%
-  mutate(g = substr(id, 1,1)) %>%
-  left_join(hclust_res) %>%
-  # left_join(mtd) %>%
+  mutate(sample_id = rownames(.)) %>%
+  mutate(g = substr(sample_id, 1,1)) %>%
+  # left_join(hclust_res) %>%
+  left_join(mtd) %>%
   ggplot(., aes(PC1, PC2)) +
-  # ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)), fill = 'grey') +
-  # geom_point(size = 5, alpha = 0.9) +
-  geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
+  # ggforce::geom_mark_hull(aes(group = as.factor(g)), fill = 'grey', con.colour = 'grey') +
+  # geom_point(size = 1, alpha = 0.9, aes(color = Diagnosis)) +
+  # geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
   # geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
-  geom_text(aes(label = id, color = g), alpha = 1) +
+  ggrepel::geom_text_repel(aes(label = sample_id, color = Diagnosis), 
+    alpha = 1, size = 4, max.overlaps = 10) +
   labs(caption = '') +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
-  theme_classic(base_family = "GillSans", base_size = 16) +
+  # theme_classic(base_family = "GillSans", base_size = 16) +
   theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
   # coord_fixed(ratio = sd_ratio) +
-  scale_color_brewer('',palette = "Set1")
+  scale_color_manual(values = axis_col) -> pcaplot
+
+ggsave(pcaplot, 
+  filename = "PCA.png", path = path, 
+  width = 10, height = 7)
 
 # Correlation heatmap ----
 
@@ -505,32 +517,48 @@ hc_samples = hclust(sample_dist, method='complete')
 hc_order <- hc_samples$labels[hc_samples$order]
 
 sample_cor %>% 
-  as_tibble(rownames = 'Sample') %>%
+  as_tibble(rownames = 'sample_id') %>%
   pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
-  mutate(Sample = factor(Sample, levels = hc_order)) %>%
-  mutate(g = substr(Sample, 1,1)) -> sample_cor_long
+  left_join(mtd) %>% 
+  mutate(sample_id = factor(sample_id, levels = hc_order)) -> sample_cor_long
 
-sample_cor_long %>% distinct(Sample, g) %>% mutate(col = ifelse(g %in% 'C', 'red', 'blue')) -> coldf 
+# sample_cor_long %>% distinct(sample_id, Diagnosis) %>% mutate(col = ifelse(g %in% 'C', 'red', 'blue')) -> coldf 
 
-structure(coldf$col, names =  as.character(coldf$Sample)) -> axis_col
+n <- length(unique(sample_cor_long$Diagnosis))
+
+getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
+
+axis_col <- structure(getPalette, names = unique(sample_cor_long$Diagnosis))
+axis_col <- getPalette[match(mtd$Diagnosis, names(axis_col))]
+axis_col <- structure(axis_col, names = unique(sample_cor_long$sample_id))
+
+
+# structure(coldf$col, names =  as.character(coldf$Sample)) -> axis_col
 
 library(ggh4x)
 
 sample_cor_long %>%
-  ggplot(aes(x = Sample, y = name, fill = cor)) + 
+  ggplot(aes(x = sample_id, y = name, fill = cor)) + 
   # geom_tile(color = 'white', size = 0.2) +
   geom_raster() + 
   # geom_text(aes(label = cor), color = 'white') +
-  theme_classic(base_size = 12, base_family = "GillSans") +
   scale_fill_viridis_c(name = "Pearson", direction = -1) +
   # scale_x_discrete(position = 'top') +
   labs(x = '', y = '') +
+  ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top') +
   ggh4x::scale_y_dendrogram(hclust = hc_samples) +
-  theme(axis.text.x = element_text(angle = 90, 
-    hjust = 1, vjust = 1, size = 10, color = axis_col),
+  theme_classic(base_size = 7, base_family = "GillSans") +
+  theme(axis.text.x = element_text(angle = 90,
+    hjust = 1, vjust = 1, size = 7, color = axis_col),
     axis.text.y = element_text(color = axis_col),
     axis.ticks.length = unit(5, "pt")) -> pheat
-  # ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top')
+
+# pheat +  ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top') -> pheat
+
+ggsave(pheat, 
+  filename = "cor_data_matrix.png", path = path, 
+  width = 6, height = 5)
+
 
 # Prevalence of features ----
 
@@ -703,10 +731,9 @@ dds <- DESeq(ddsFullCountTable)
 
 # dds <- read_rds("~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/Cancer_vs_Control_dds.rds")
 
-# contrast <- levels(colData(dds)$g1)
-contrast <- levels(colData(dds)$g2)
-# contrast <- 
-get_res <- function(dds, contrast) {
+contrast <- levels(colData(dds)$g1)
+
+get_res <- function(dds, contrast, alpha_cutoff = 0.1) {
   
   sA <- contrast[1]
   sB <- contrast[2]
@@ -718,7 +745,7 @@ get_res <- function(dds, contrast) {
   
   contrast <- c(contrast, sA, sB)
   
-  res = results(dds, contrast)
+  res = results(dds, contrast, alpha = alpha_cutoff)
   
   
   baseMeanA <- rowMeans(DESeq2::counts(dds,normalized=TRUE)[,keepA])
@@ -734,13 +761,14 @@ get_res <- function(dds, contrast) {
       round ,digits = 2)
 }
 
-prep_DE_data <- function(res, padj_in, logfc_in) {
+prep_DE_data <- function(res, alpha, lfcThreshold) {
   
   FC_cols <- c('logFC','log2FoldChange')
   pv_cols <- c('P.Value','pvalue', 'PValue')
   pvad_cols <- c('padj', 'FDR', 'adj.P.Val')
   
-  sam <- c('baseMeanA', 'baseMeanB')
+  sam <- c('sampleA',  'sampleB')
+  samv <- c('baseMeanA', 'baseMeanB')
   
   rename_to <- c('logFC', 'pvalue', 'padj')
   # 
@@ -772,7 +800,7 @@ prep_DE_data <- function(res, padj_in, logfc_in) {
   
   res %>%
     # drop_na() %>%
-    select_at(vars(ids, contains(sam), contains(FC_cols), 
+    select_at(vars(ids, contains(sam), contains(samv), contains(FC_cols), 
       contains(pv_cols),
       contains(pvad_cols))) %>%
     rename_at(vars(contains(FC_cols),
@@ -782,19 +810,27 @@ prep_DE_data <- function(res, padj_in, logfc_in) {
   
   
   res$cc <- 'NS'
-  res[which(abs(res$logFC) >= logfc_in), 'cc'] <- fc
-  res[which(abs(res$padj) <= padj_in), 'cc'] <- pv
-  res[which(res$padj <= padj_in & abs(res$logFC) >= logfc_in), 'cc'] <- sigfc
+  res[which(abs(res$logFC) > lfcThreshold), 'cc'] <- fc
+  res[which(abs(res$padj) <= alpha), 'cc'] <- pv
+  res[which(res$padj <= alpha & abs(res$logFC) > lfcThreshold), 'cc'] <- sigfc
+  
+  up <- 'Up-regulated'
+  down <- 'Down-regulated'
+  
+  res$lfcT <- 'Basal'
+  res[which(res$padj < alpha & res$logFC > lfcThreshold), 'lfcT'] <- up
+  res[which(res$padj < alpha & res$logFC < -lfcThreshold), 'lfcT'] <- down
   
   res %>%
     # sample_NS(.,1000) %>%
-    mutate(cc = factor(cc, levels = c(sigfc, pv, fc, "NS")))
+    mutate(cc = factor(cc, levels = c(sigfc, pv, fc, "NS"))) %>%
+    mutate(lfcT = factor(lfcT, levels = c(up, down, 'Basal')))
 
 }
 
 res <- get_res(dds, contrast)
 
-res.p <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2) %>%
+res.p <- prep_DE_data(res, alpha = 0.05, lfcThreshold = 2) %>%
   drop_na(cc)
 
 # Test run_DESEQ2(count, g)
@@ -879,10 +915,45 @@ ggsave(savep,
 #     axis.line.x = element_blank()) +
 #   facet_grid(~name)
 
+# heatmap ----
 # returno to heatmap to get positions
 
+
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp'
+file_name <- paste0(path, '/multiple_contrast_vs_control_res.rds')
+res <- read_rds(file_name) # Para leer archivos tipo rds (Rdata) desde R. El formato rds es una version de archivos compridos de R
+
+res %>% distinct(sampleA, sampleB)
+
+res %>% arrange(log2FoldChange)
+
+# res %>% sample_n(1000) %>%
+#   ggplot() +
+#   geom_point(aes(y = log2FoldChange, x = baseMean, color = -log10(padj)))
+
+
+alpha = 0.05 
+
+lfcThreshold = 2
+
+# Queremos genes que fueron superiores al umbral lfcThreshold & < alpha == FC+sig
+
+res %>% 
+  mutate(cc = NA) %>% 
+  mutate(cc = ifelse(padj < alpha & abs(log2FoldChange) > lfcThreshold, 'sigfc', cc)) %>%
+  drop_na(cc) -> res.p
+
+up <- 'Up-regulated'
+down <- 'Down-regulated'
+
 res.p %>%
-  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  mutate(lfcT = 'Basal') %>%
+  mutate(lfcT = ifelse(log2FoldChange > lfcThreshold, up, lfcT)) %>%
+  mutate(lfcT = ifelse(log2FoldChange < -lfcThreshold, down, lfcT)) -> res.p
+
+
+res.p %>%
+  # filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
   pull(ids) -> diffexpList
 
 keep <- rownames(count) %in% diffexpList
@@ -914,22 +985,32 @@ hc_genes_ord <- hc_genes$labels[hc_genes$order]
 
 DEcount %>% 
   as_tibble(rownames = 'id') %>%
-  pivot_longer(cols = colnames(dfheat), values_to = 'count', names_to = 'sample_id') %>%
+  pivot_longer(cols = colnames(DEcount), values_to = 'count', names_to = 'sample_id') %>%
   # mutate(sample_id = factor(sample_id, levels = hc_sam_order)) %>%
   # mutate(id = factor(id, levels = hc_genes_ord)) %>%
   left_join(mtd) %>%
   filter(count > 0) -> countLong
 
 countLong %>% 
-  distinct(sample_id, g1) %>% 
-  mutate(col = ifelse(g1 %in% 'C', 'red', 'blue')) %>%
+  distinct(sample_id, Diagnosis) %>% 
+  # mutate(col = ifelse(g1 %in% 'C', 'red', 'blue')) %>%
   arrange(match(sample_id, hc_sam_order)) -> coldf 
 
-structure(coldf$col, names =  as.character(coldf$sample_id)) -> axis_col
+
+n <- length(unique(coldf$Diagnosis))
+
+getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
+
+axis_col <- structure(getPalette, names = unique(coldf$Diagnosis))
+axis_col <- getPalette[match(mtd$Diagnosis, names(axis_col))]
+axis_col <- structure(axis_col, names = unique(coldf$sample_id))
+
+
 
 library(ggh4x)
 
 countLong %>%
+  # sample_n(1000) %>%
   ggplot(aes(x = sample_id, y = id, fill = log2(count+1))) + 
   geom_raster() + 
   theme_classic(base_size = 12, base_family = "GillSans") +
@@ -946,6 +1027,7 @@ countLong %>%
     axis.ticks.y = element_blank(),
     axis.line.y = element_blank()) -> pheat
 
+# pheat +facet_grid(~ Diagnosis, scales = 'free_x', space = 'free_x')
 
 pheat + guides(fill = guide_colorbar(barheight = unit(4, "in"),
   ticks.colour = "black",
@@ -1115,8 +1197,8 @@ nrow(goEnrich_g2)
 # baseMeanA == +FC, baseMeanB == -FC
 
 
-write.table(goEnrich_g1, file = paste0(path, 'go_enrichment_control_vs_cancer_control'))
-write.table(goEnrich_g2, file = paste0(path, 'go_enrichment_control_vs_cancer_cancer'))
+write.table(goEnrich_g1, file = paste0(path, 'go_enrichment_control_vs_cancer_control.csv'))
+write.table(goEnrich_g2, file = paste0(path, 'go_enrichment_control_vs_cancer_cancer.csv'))
 
 quantile(as.numeric(goEnrich_g1$classicKS))
 quantile(goEnrich_g2$p.adj.ks)
@@ -1240,6 +1322,11 @@ rbind(data.frame(topGO1.p, g = 'Control'),
   as_tibble() -> topGO.p
 
 # Multiple contrast ----
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp'
+
+mtd <- read.csv(file = paste0(path, '/metadata.csv'))
+
+rownames(mtd) <- mtd$sample_id
 
 colData <- mtd %>% arrange(match(sample_id, names(count)))
 
@@ -1265,15 +1352,18 @@ ddsFullCountTable <- DESeqDataSetFromMatrix(
   design = ~ g2 ) # if not rep use design = ~ 1
 
 # write_rds(dds, file = paste0(path, '/multiple_contrast_vs_control_dds.rds'))
-dds <- read_rds(paste0(path, '/multiple_contrast_vs_control_dds.rds'))
+# dds <- read_rds("/Cancer_vs_Control_dds.rds")
+dds <- read_rds('~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/multiple_contrast_vs_control_dds.rds')
 
-dds <- DESeq(ddsFullCountTable)
+# dds <- DESeq(ddsFullCountTable)
+
+contrast <- levels(colData(dds)$g2)
 
 out <- list()
 
 for(i in 2:length(contrast)) {
   j <- i
-  cat('\nContrast', contrast[c(1,j)], '\n')
+  cat('\nContrast', contrast[1],' and ', contrast[j],'\n')
   res <- get_res(dds, contrast[c(1,j)])
   out[[j]] <- res
   
@@ -1281,8 +1371,291 @@ for(i in 2:length(contrast)) {
 
 do.call(rbind, out) -> res
 
+# write_rds(res, file = '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/multiple_contrast_vs_control_res.rds')
 
 res %>% distinct(sampleA, sampleB)
 
-res.p <- prep_DE_data(res, padj_in = 0.05, logfc_in = 2)
+logfc_in <- 2
+
+padj_in <- 0.05 
+
+# volcano ----
+mtd %>% group_by(Diagnosis, g2) %>% tally()
+
+res.p %>% distinct(sampleA,sampleB)
+
+res.p %>%
+  mutate(pvalue = -log10(pvalue)) %>%
+  ggplot(aes(x = logFC, y = pvalue)) +
+  geom_point(aes(color = cc), alpha = 3/5) +
+  scale_color_manual(name = "", values = colors_fc) + 
+  labs(x= expression(Log[2] ~ "Fold Change"), 
+    y = expression(-Log[10] ~ "P")) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = "top") +
+  facet_grid(~ sampleB) -> pvol
+
+ggsave(pvol, filename = 'multiple_contrast_control_vs_cancer.png',path = path,  
+  width = 9.5, height = 3.5, dpi = 250)
+
+#how up and down genes ----
+alpha  = 0.05
+lfcThreshold = 2
+
+res.p <- prep_DE_data(res, alpha  = 0.05, lfcThreshold = 2)
+
+write_rds(res.p, path = path, file = '')
+
+title <- 'Differentially expressed genes'
+subtitle <- expression(p[adj] < 0.05 ~ and ~ abs ~ (log[2] ~ FC) > 2)
+
+res.p %>%
+  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  group_by(sampleB, lfcT) %>%
+  tally() %>%
+  ggplot(aes(x = sampleB, y = n, fill = lfcT)) +
+  geom_col(color = 'black') +
+  scale_fill_manual(name = "", values = c('#1f78b4', '#a6cee3')) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  labs(y = '# Transcripts', x = '', subtitle = subtitle, title = title) +
+  theme(legend.position = 'top') -> psave
+
+ggsave(psave, filename = "multiple_contrast_control_vs_cancer_up-dpwn.png", path = path,
+  width = 5, height = 5)
+
+# AND VISUALIZE
+  
+# Pbar
+res.p %>% arrange(logFC)
+
+res.p %>%
+  mutate(g = ifelse(logFC > 0, 'Control', 'Cancer')) %>%
+  filter(g != 'Control') %>%
+  group_by(cc, sampleB) %>% 
+  tally() %>%
+  filter(cc != 'NS') %>%
+  ggplot(aes(x = sampleB, y = n)) +
+  geom_bar(aes(fill = cc), 
+    stat = 'identity', position = position_dodge2(width = 1)) +
+  scale_fill_manual(name = "", values = colors_fc[-4]) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  labs(y = '# DE Transcripts', x = '') +
+  theme(legend.position = 'top') -> pbar
+
+pbar + geom_text(aes(label = n), hjust = 0.5, family = "GillSans", 
+  position = position_dodge2(width = 1),
+  vjust = -0.5, size = 3) -> pbar
+
+ggsave(pbar,
+  filename = "multiple_contrast_control_vs_cancer_bar.png", path = path,
+  width = 6.5, height = 5)
+
+res.p %>%
+  mutate(g = ifelse(logFC > 0, 'Control', 'Cancer')) %>%
+  filter(g != 'Control') %>%
+  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  ggplot() +
+  facet_wrap(~sampleB, scales = 'free_y', nrow = 1) +
+  geom_histogram(aes(padj, fill = cc)) +
+  # facet_wrap( cc ~ ., scales = 'free_x') +
+  scale_fill_manual(name = "", values = colors_fc[-4]) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = 'none') +
+  labs(y = '# Transcripts') -> padjp
+
+padjp + theme(panel.border = element_blank(),
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank(),
+  axis.line.x = element_blank(),
+  strip.text.x = element_blank()) -> padjp
+
+library(patchwork)
+
+pbar / padjp + patchwork::plot_layout(heights = c(3,1))-> savep
+
+ggsave(savep, 
+  filename = "multiple_contrast_control_vs_cancer_bar_hist.png", path = path, 
+  width = 5, height = 5)
+
+# heatmap AND pca
+res.p %>% filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>% distinct(lfcT)
+
+res.p %>%
+  filter(cc ==  'p - value ~ and ~ log[2] ~ FC') %>%
+  # filter(sampleB %in% 'Cancer_IDC') %>%
+  distinct(ids) %>%
+  pull(ids) -> diffexpList
+
+# mtd %>% filter(g2 %in% c('Control', 'Cancer_IDC')) %>% pull(sample_id) -> which_sam
+
+str(diffexpList)
+
+m <- DESeq2::counts(dds, normalized=T)
+dim(DEcount <- m[rownames(m) %in% diffexpList,])
+
+# PCA -----
+
+# Heatmap -----
+
+data = log2(DEcount+1)
+
+PCA = prcomp(t(data), center = FALSE, scale. = FALSE)
+
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+
+sd_ratio <- sqrt(percentVar[2] / percentVar[1])
+
+PCAdf <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
+
+gcolor <- structure(c('#d53e4f', '#3288bd'), names = c('P', 'C'))
+
+PCAdf %>%
+  mutate(sample_id = rownames(.)) %>%
+  left_join(mtd) %>%
+  ggplot(., aes(PC1, PC2)) +
+  ggforce::geom_mark_hull(aes(group = as.factor(g1), label = as.factor(g1)), fill = 'grey') +
+  geom_point(aes(color = g2), size = 5, alpha = 0.9) +
+  labs(caption = '') +
+  xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
+  ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
+  theme_classic(base_family = "GillSans", base_size = 16) +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
+  # coord_fixed(ratio = sd_ratio) +
+  scale_color_brewer(palette = 'Set1') -> plotPca
+  # scale_color_manual('', values = gcolor) -> plotPca
+
+
+ggsave(plotPca, 
+  filename = "multiple_contrast_control_vs_cancer_PCA.png", path = path, 
+  width = 7, height = 5)
+
+
+# DEcount <- DEcount[, colnames(DEcount) %in% which_sam]
+
+# keep <- rownames(count) %in% diffexpList
+
+# dim(count[keep,] -> DEcount)
+
+sample_cor = cor(DEcount, method='pearson', use='pairwise.complete.obs')
+
+# superheat::superheat()
+
+dist.method <- 'euclidean'
+linkage.method <- 'complete'
+
+m <- log2(DEcount+1)
+
+mtd %>% filter(g1 %in% c('C')) %>% pull(sample_id) -> control_sam
+mtd %>% filter(g1 %in% c('P')) %>% pull(sample_id) -> cancer_sam
+
+
+dim(m1 <- DEcount[, colnames(DEcount) %in% control_sam])
+dim(m2 <- DEcount[, colnames(DEcount) %in% cancer_sam])
+
+hc_control_samples <- hclust(dist(t(m1), method = dist.method),method = linkage.method)
+hc_cancer_samples <- hclust(dist(t(m2), method = dist.method),method = linkage.method)
+
+hc_sam_order <- hc_samples$labels[hc_samples$order]
+
+hc_genes <- hclust(dist(m, method = dist.method), 
+  method = linkage.method)
+
+hc_genes_ord <- hc_genes$labels[hc_genes$order]
+
+
+DEcount %>% 
+  as_tibble(rownames = 'id') %>%
+  pivot_longer(cols = colnames(DEcount), values_to = 'count', names_to = 'sample_id') %>%
+  # mutate(sample_id = factor(sample_id, levels = hc_sam_order)) %>%
+  # mutate(id = factor(id, levels = hc_genes_ord)) %>%
+  left_join(mtd) %>%
+  filter(count > 0) -> countLong
+
+# preliminary bp
+countLong %>% 
+  # mutate(count = log2(count+1)) %>%
+  ggplot(aes(x = sample_id, y = count)) +
+  geom_boxplot()
+# gcolor <- structure(c('#d53e4f', '#3288bd'), names = c('P', 'C'))
+
+
+countLong %>% 
+  distinct(sample_id, g1) %>% 
+  mutate(col = ifelse(g1 %in% 'C', '#d53e4f', '#3288bd')) %>%
+  arrange(match(sample_id, hc_sam_order)) -> coldf 
+
+structure(coldf$col, names =  as.character(coldf$sample_id)) -> axis_col
+
+library(ggh4x)
+
+
+
+countLong %>%
+  mutate(count = log2(count+1)) %>%
+  ggplot(aes(x = sample_id, y = id, fill = count)) + 
+  geom_raster() + 
+  theme_classic(base_size = 12, base_family = "GillSans") +
+  # ggsci::scale_fill_gsea(name = expression(Log[2]~'(cpm+1)'), reverse = T) +
+  scale_fill_gradient2(midpoint = 0, low = '#ff7f00', mid = 'white', high = '#984ea3') +
+  labs(x = '', y = '') +
+  # ggh4x::scale_y_dendrogram(hclust = hc_genes) +
+  # ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, 
+    hjust = 1, vjust = 1, size = 7, color = axis_col), # 
+    axis.ticks.length = unit(10, "pt"),
+    # legend.position = 'top',
+    panel.border = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y = element_blank()) -> pheat
+
+pheat
+
+
+pheat + guides(fill = guide_colorbar(barheight = unit(4, "in"),
+  ticks.colour = "black",
+  frame.colour = "black",
+  label.theme = element_text(size = 12))) -> pheat
+
+# pheat + facet_grid(~ g1, scales = 'free_x', space = 'free_x')
+
+ggsave(pheat, 
+  filename = "multiple_contrast_control_vs_cancer_hetmap.png", path = path, 
+  width = 8, height = 8)
+
+# ven diagram
+
+res.p
+
+res.p %>% 
+  distinct(ids, sampleB) %>% 
+  group_by(GO.ID, Module) %>%
+  count() %>%
+  pivot_wider(names_from = 'Module', values_from = 'n', 
+    values_fill = 0) -> euler
+
+length(unique(euler$GO.ID)) == nrow(euler)
+
+# rownames(euler) <- euler$GO.ID
+
+
+eulerdf <- as.data.frame(euler)
+eulerdf$GO.ID <- NULL
+
+library(UpSetR)
+
+labels <- names(eulerdf)
+n <- length(labels)
+grid.col <- labels # ggsci::pal_rickandmorty()(n)
+names(grid.col) <- labels
+
+
+# png(filename = paste0(dir, "intersect_families.png"), width = 780, height = 780, res = 150)
+upset(eulerdf, number.angles = 0, point.size = 3.5, line.size = 2, 
+  nintersects = 40, nsets = n,
+  mainbar.y.label = "Intersections", sets.x.label = "G.O per Module", 
+  text.scale = c(1.3, 2, 1, 2, 2, 2),
+  order.by = c("freq", "degree"))
+
+# dev.off()
 
