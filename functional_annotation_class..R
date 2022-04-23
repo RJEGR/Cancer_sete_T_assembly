@@ -25,7 +25,11 @@ library(topGO)
 library(ggupset)
 library(patchwork)
 
-source("/Users/cigom/Documents/GitHub/Cancer_sete_T_assembly/functions.R")
+# source("/Users/cigom/Documents/GitHub/Cancer_sete_T_assembly/functions.R")
+
+url <- 'https://raw.githubusercontent.com/RJEGR/Cancer_sete_T_assembly/main/functions.R'
+
+source(url)
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/annot/'
 
@@ -155,7 +159,9 @@ for(i in sam_group) {
 # down-regulated means transcripts well expressed in control or down-expressed in cancer
 
 outdown <- list()
+
 # up
+
 for(i in sam_group) {
   
   j <- i
@@ -244,6 +250,7 @@ reducedTerms1 %>%
   coord_flip() +
   theme_bw(base_family = "GillSans") -> psave2
 
+psave2
 psave
 
 # Network of interactions ----
@@ -292,6 +299,8 @@ hist(V(g)$betweenness)
 
 # plot(net)
 
+g %>% 
+
 layout = create_layout(g, layout = 'igraph', algorithm = 'kk')
 
 ggraph(layout) +
@@ -307,7 +316,7 @@ ggraph(layout) +
 
 gplot +
   geom_edge_link(aes(color = Term))+
-  geom_node_point(aes(color = abs(log2FoldChange), size = degree)) + # , alpha = GS
+  geom_node_point() + #aes(color = abs(log2FoldChange), size = degree)) + # , alpha = GS
   geom_node_text(aes(label = name), repel = TRUE, size = 2) +
   scale_color_viridis_c(name = 'log2FC', option = 'magma', direction = -1) +
   # scale_color_continuous(name = 'Gene Correlation') + # values = nodeCol
