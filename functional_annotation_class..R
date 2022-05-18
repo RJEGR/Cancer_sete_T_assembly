@@ -2,6 +2,8 @@
 # Ricardo Gomez-Reyes April 2022
 # Transcriptomic Cancer analysis
 
+# test https://yulab-smu.top/biomedical-knowledge-mining-book/dose-enrichment.html
+
 # Functional annotation enrichment for identify a common modular structure between G.O terms hierarchy
 
 # In many cases the list of differentially expressed genes is not sufficient for accurate inference of the underlying biology. Additional biological knowledge needs to be included to enhance the interpretation of such a list of genes. With the development of biological knowledge databases, information for augmenting gene expression data is available. Biologically interesting sets of genes, for example genes that belong to a pathway or genes known to have the same biological function, can now be compiled. A popular choice for gene sets are genes collected under Gene Ontology (GO) terms (Alexa et al, 2006)

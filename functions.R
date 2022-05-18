@@ -182,3 +182,69 @@ prep_dist_data <- function(df, select_exclusive = T) {
   return(distinct_trans)
   
 }
+
+# anntation
+
+split_blast <- function (x, hit = "sprot_Top_BLASTX_hit")
+{
+  require(data.table)
+  y <- x[!is.na(get(hit)), .(get(hit), gene_id, transcript_id,
+    prot_id)]
+  z <- strsplit(y$V1, "`")
+  n <- sapply(z, length)
+  z <- strsplit(unlist(z), "\\^")
+  if (any(sapply(z, "[", 1) != sapply(z, "[", 2)))
+    print("WARNING: check different values in columns 1 and 2")
+  NAME <- gsub("^RecName: Full=", "", sapply(z, "[", 6))
+  NAME <- gsub("SubName: Full=", "", NAME)
+  NAME <- gsub(";$", "", NAME)
+  NAME <- gsub(" \\{[^}]+}", "", NAME)
+  x1 <- data.frame(gene = rep(y$gene_id, n), transcript = rep(y$transcript_id,
+    n), protein = rep(gsub(".*\\|", "", y$prot_id), n), uniprot = sapply(z,
+      "[", 1), align = sapply(z, "[", 3), identity = as.numeric(gsub("%ID",
+        "", sapply(z, "[", 4))), evalue = as.numeric(gsub("E:",
+          "", sapply(z, "[", 5))), name = NAME, lineage = sapply(z,
+            "[", 7), domain = gsub("; .*", "", sapply(z, "[", 7)),
+    genus = gsub(".*; ", "", sapply(z, "[", 7)), stringsAsFactors = FALSE)
+  message(nrow(x1), " ", hit, " annotations")
+  data.table(x1)
+}
+
+# functions to test, check profiling_oyster_set.R script
+
+# enrichement by GO/entrezid
+
+getEntrez <- function(go, de_df, pattern = NULL, GOtype='MF', mart) {
+  
+  library(biomaRt)
+  
+  if(is.null(pattern)) {
+    geneList <- getList(go, de_df, '', GOtype)
+  } else
+    geneList <- getList(go, de_df, pattern, GOtype)
+  
+  
+  
+  GO_universe <- geneList %>% select_at(vars(go)) %>% pull(.)
+  
+  goids = getBM(attributes = c('entrezgene_id', 
+    'go_id',
+    'name_1006'),
+    filters = 'go', 
+    values = GO_universe, 
+    mart = mart)
+  
+  
+  entrezgene_id <- goids %>%
+    filter(!is.na(entrezgene_id)) %>%
+    mutate(entrezgene_id = as.character(entrezgene_id)) %>%
+    arrange(desc(entrezgene_id))
+  
+  return(entrezgene_id)
+}
+
+# Example
+getEntrez(go, de_df, GOtype='MF', mart = ensembl_cgigas,
+  pattern = NULL) -> mart_data
+
+
