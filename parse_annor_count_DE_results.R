@@ -9,22 +9,68 @@ options(stringsAsFactors = FALSE) #
 
 library(tidyverse)
 
-url <- 'https://raw.githubusercontent.com/RJEGR/Cancer_sete_T_assembly/main/functions.R'
+# url <- 'https://raw.githubusercontent.com/RJEGR/Cancer_sete_T_assembly/main/functions.R'
 
-source(url)
+# source(url)
 
 
 # Annot
-path <- '~/Documents/DOCTORADO/human_cancer_dataset/annot/'
+path <- "~/Downloads/CORAL/"
 
 trino_file <- list.files(path = path, pattern = 'xls$', full.names = T)
-x <- data.table::fread(trino_file, sep = '\t', na.strings = '.')
 
-load(paste0(path, '/count_annot_multiple_contrast_vs_control_up_down_genes.Rdata'))
+x <- data.table::fread(trino_file, sep = '\t', na.strings = '.')
+names(x)[1] <- 'gene_id'
+
+de_file <- "RSEM.isoform.counts.matrix.Boquita_vs_Carrizales.DESeq2.DE_results.P0.01_C1.DE.subset$"
+
+de_file <- list.files(path = path, pattern = de_file, full.names = T)
+
+
+# Prepare DE data ----
+
+# negative lFC == Carrizales
+# Positive lFC == Boquita
+
+res <- read.table(de_file, header=T, com='', row.names=1, check.names=F, sep='\t', stringsAsFactors = FALSE) %>%
+  as_tibble(rownames = 'transcript')
+
+
+res %>% distinct(sampleA, sampleB)
+
+res %>% arrange(log2FoldChange)
+
+alpha = 0.01 
+
+lfcThreshold = 2
+
+# Oscar: The R package DESeq2 (Love et al. 2014) was implemented to identify differentially expressed genes (DEGs) between the groups (false discovery rate < 0.01, fold change > 2, TPM > 1).
+
+res %>% 
+  mutate(cc = NA) %>% 
+  mutate(cc = ifelse(padj < alpha & abs(log2FoldChange) > lfcThreshold, 'sigfc', cc)) %>%
+  drop_na(cc) -> res.p
+
+up <- 'Up-regulated' # transcript w/ log2FoldChange > lfcThreshold
+down <- 'Down-regulated' # transcript w/ log2FoldChange < lfcThreshold
+
+res.p %>%
+  mutate(lfcT = 'Basal') %>%
+  mutate(lfcT = ifelse(log2FoldChange > lfcThreshold, down, lfcT)) %>%
+  mutate(lfcT = ifelse(log2FoldChange < -lfcThreshold, up, lfcT)) -> res.p
+
+up_df <- res.p %>% filter(grepl(up, lfcT))
+
+down_df <- res.p %>% filter(grepl(down, lfcT))
+
+save(up_df, down_df, 
+  file = paste0(path, 'count_annot_Boquita_vs_Carrizales_up_down_genes.Rdata'))
+
+# 2) Prepare annotation data ----
 
 # data 
 
-data %>% as_tibble(rownames = 'ids') -> data
+x %>% as_tibble(rownames = 'ids') -> data
 
 # prepare query ids
 parse_results <- function(df) {
@@ -86,45 +132,11 @@ parse_results <- function(df) {
   
 }
 
-savedf_down <- parse_results(down_df)
-savedf_up <- parse_results(up_df)
+blast <- split_blast(x, "sprot_Top_BLASTP_hit")
 
-write_excel_csv(savedf_down,
-  file = paste0(path, '/Cancer_vs_Control_annot_count_down_genes.xls'))
-
-write_excel_csv(savedf_up,
-  file = paste0(path, '/Cancer_vs_Control_annot_count_up_genes.xls'))
-
-# sblastx <- trinotateR::summary_blast(blastx)
+length(unique(blast$transcript))
 # 
-# length(unique(blastx$transcript))
-# 
-# table(blastx$domain)
+table(blast$domain)
 
-blastp <- split_blast(annot, "sprot_Top_BLASTP_hit")
-sblastp <- trinotateR::summary_blast(blastp)
+x
 
-length(unique(blastp$transcript))
-
-
-
-# omit () -----
-# UniProt.ws: A package for retrieving data from the UniProt web service
-# BiocManager::install("UniProt.ws")
-# convert 
-
-# uniprots <- blastp %>% 
-#   filter(genus %in% 'Homo') %>% 
-#   mutate(uniprot = sapply(strsplit(uniprot, "_"), "[", 1)) %>%
-#   pull(uniprot) %>% unique()
-# 
-# 
-# str(uniprots)
-
-# library(UniProt.ws)
-# 
-# availableUniprotSpecies("Homo sapiens")
-# lookupUniprotSpeciesFromTaxId(taxId=9606)
-# No data is available for the keys provided.
-# up <- UniProt.ws(taxId=9606)
-# select(up, head(uniprots), "ENTREZ_GENE")
