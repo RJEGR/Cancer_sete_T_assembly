@@ -244,7 +244,7 @@ getEntrez <- function(go, de_df, pattern = NULL, GOtype='MF', mart) {
 }
 
 # Example
-getEntrez(go, de_df, GOtype='MF', mart = ensembl_cgigas,
-  pattern = NULL) -> mart_data
+# getEntrez(go, de_df, GOtype='MF', mart = ensembl_cgigas,
+  # pattern = NULL) -> mart_data
 
 
