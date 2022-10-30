@@ -22,7 +22,7 @@ Proof-read: [Here](https://github.com/ncbi/sra-tools/wiki/08.-prefetch-and-faste
 # Test
 head -n1 SraAccList.txt | xargs -n 1 -P 12 fastq-dump --split-files --gzip --skip-technical --outdir .
 # run All downloads (Slurm recommended)
-fastq-dump --outdir . --split-files SraAccList.txt
+fastq-dump --split-files SraAccList.txt --gzip --skip-technical --outdir .
 ```
 
 ### 3) (Optional)

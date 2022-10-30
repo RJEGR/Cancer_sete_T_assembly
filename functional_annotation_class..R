@@ -27,11 +27,11 @@ library(topGO)
 library(ggupset)
 library(patchwork)
 
-# source("/Users/cigom/Documents/GitHub/Cancer_sete_T_assembly/functions.R")
+source("/Users/cigom/Documents/GitHub/Cancer_sete_T_assembly/functions.R")
 
-url <- 'https://raw.githubusercontent.com/RJEGR/Cancer_sete_T_assembly/main/functions.R'
+# url <- 'https://raw.githubusercontent.com/RJEGR/Cancer_sete_T_assembly/main/functions.R'
 
-source(url)
+# source(url)
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/annot/'
 

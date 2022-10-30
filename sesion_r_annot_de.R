@@ -87,8 +87,6 @@ nrow(data <- count_raw[keep,])
 
 # Anotacion ----
 
-
-
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/annot/'
 
 # trino_file <- list.files(path = path, pattern = 'xls$', full.names = T)
