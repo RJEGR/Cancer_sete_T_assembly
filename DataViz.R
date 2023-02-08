@@ -175,7 +175,7 @@ df %>%
   ggplot(aes(x = Db, y = pct, fill = Status)) +
   geom_col(position = position_stack(reverse = TRUE)) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
-  labs(y = "% BUSCOs", x = "") +
+  labs(y = "% BUSCOs", x = "", caption = 'Human cancer reference-guide transcriptome assembly') +
   coord_flip() +
   scale_fill_manual("", values = col) +
   theme_classic(base_size = 14, base_family = "GillSans") +
@@ -226,7 +226,7 @@ df %>%
 
 # add genome index
 
-path <- '~/Documents/DOCTORADO/summaries_busco/summaries_genome/full_tables/'
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/summaries_busco/summaries_genome/full_tables/'
 file <- list.files(path, pattern = pattern_f,  full.names = TRUE)
 df2 <- lapply(file, read_tsv)
 head(df2 <- do.call(rbind, df2))
