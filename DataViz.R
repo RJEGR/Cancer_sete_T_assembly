@@ -122,11 +122,11 @@ df %>%
 p4
 
 ggsave(p4, filename = 'trimmomatic_pct.png', path = path, 
-  width = 7, height = 10)
+  width = 7.2, height = 10)
 
 library(patchwork)
 
-p1+p2+p3+p4
+# p1+p2+p3+p4
 
 # BUSCO DATAVZ ----
 
@@ -179,7 +179,11 @@ df %>%
   coord_flip() +
   scale_fill_manual("", values = col) +
   theme_classic(base_size = 14, base_family = "GillSans") +
-  theme(legend.position = 'top')
+  theme(legend.position = 'top') -> ps
+
+out_path <- '~/Documents/DOCTORADO/human_cancer_dataset/'
+
+ggsave(ps, filename = "BUSCO.png", path = out_path, height = 3)
 
 
 df %>% 
@@ -198,7 +202,7 @@ df %>%
   facet_grid( ~ Db, scales = "free_y") +
   theme_bw(base_size = 14, base_family = "GillSans")
 
-theme_set(my_theme)
+# theme_set(my_theme)
 
 df %>%
   group_by(Db) %>% 
@@ -227,6 +231,7 @@ df %>%
 # add genome index
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/summaries_busco/summaries_genome/full_tables/'
+
 file <- list.files(path, pattern = pattern_f,  full.names = TRUE)
 df2 <- lapply(file, read_tsv)
 head(df2 <- do.call(rbind, df2))
@@ -243,8 +248,8 @@ tbl <- rbind(df, df2)
 tbl %>% 
   drop_na(Score) %>%
   ggplot(aes(Score, fill = Index)) +
-  geom_histogram() +
-  facet_grid(Status ~ Db, scales = "free") +
+  geom_histogram(alpha = 0.5) +
+  facet_wrap(Status ~ Db, scales = "free") +
   theme_bw(base_size = 10, base_family = "GillSans") +
   labs(x = "BUSCO Score")
 
@@ -252,7 +257,7 @@ tbl %>%
   drop_na(Length) %>%
   ggplot(aes(Length, fill = Index)) +
   geom_histogram() +
-  facet_grid(Status ~ Db, scales = "free") +
+  facet_wrap(Status ~ Db, scales = "free") +
   theme_bw(base_size = 10, base_family = "GillSans") +
   labs(x = "Sequence Length")
 
@@ -268,7 +273,11 @@ tbl %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, 
     hjust = 1, vjust = 1, size = 10)) +
-  labs(y = "", x = "")
+  labs(y = "Transcripts", x = "") -> ps
+
+
+ggsave(ps, filename = "BUSCO_index_contrast.png", path = out_path, height = 3)
+
 
 # Quantification ----
 
@@ -289,14 +298,14 @@ read_tsv <- function(f) {
   return(df)
 }
 
-mtd <- read.csv(file = paste0(path, '/metadata.csv'))
+mtd <- readr::read_tsv(file = paste0(path, '/metadata.tsv'))
 
-rownames(mtd) <- mtd$sample_id
+rownames(mtd) <- mtd$LIBRARY_ID
 
 
 df <- lapply(file, read_tsv)
 
-head(df <- do.call(rbind, df))
+dim(df <- do.call(rbind, df))
 
 # df %>% distinct(g)
 
@@ -321,29 +330,32 @@ apply(count, 2, function(x) sum(x > 0)) -> filtered_genes
 
 cbind(as_tibble(Total_genes, rownames = 'name'), as_tibble(filtered_genes)) -> n_genes
 
-names(n_genes) <- c('name','Raw', 'Filt')
+names(n_genes) <- c('LIBRARY_ID','Raw', 'Filt')
 
-n_genes %>% mutate(pct = Raw - Filt) -> n_genes
+n_genes %>% mutate(pct_genes_retained = Filt/Raw) -> n_genes
 
 # Total genes
 
 n_genes %>%
-  mutate(g = substr(name, 1,1)) %>%
-  arrange(desc(pct)) %>%
-  mutate(name = factor(name, levels = unique(name))) %>%
-  ggplot() + geom_col(aes(x = name, y = Raw), fill = 'black') +
-  labs(x = '', y = 'Total genes') +
+  # left_join(mtd) %>%
+  mutate(g = substr(LIBRARY_ID, 1,1)) %>%
+  arrange(desc(Raw)) %>%
+  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = unique(LIBRARY_ID))) %>%
+  ggplot() + geom_col(aes(x = LIBRARY_ID, y = Raw),  fill = 'black') + # 
+  labs(x = '', y = 'Total Transcripts') +
+  scale_y_continuous(labels = scales::comma) +
   coord_flip() +
-  theme_classic() -> p
+  theme_classic(base_family = "GillSans") -> p
 
 n_genes %>%
-  mutate(g = substr(name, 1,1)) %>%
-  arrange(desc(pct)) %>%
-  mutate(name = factor(name, levels = unique(name))) %>%
-  ggplot() + geom_col(aes(x = name, y = pct)) +
-  labs(x = '', y = 'Removed genes') +
+  mutate(g = substr(LIBRARY_ID, 1,1)) %>%
+  arrange(desc(Raw)) %>%
+  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = unique(LIBRARY_ID))) %>%
+  ggplot() + geom_col(aes(x = LIBRARY_ID, y = pct_genes_retained)) +
+  labs(x = '', y = 'Retained (%)') +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   coord_flip() +
-  theme_classic() +
+  theme_classic(base_family = "GillSans") +
   scale_fill_brewer('', palette = "Set1") +
   theme(
     legend.position = 'none',
@@ -355,38 +367,39 @@ n_genes %>%
 # Is a linearity between singletones and abundances?
 # Raw barplot ----
 
-n_genes %>% arrange(desc(pct)) %>% pull(name) -> idLev
+n_genes %>% arrange(desc(Raw)) %>% pull(LIBRARY_ID) -> idLev
 
 count_raw %>% 
   pivot_longer(cols = names(count_raw), 
-    values_to = 'Raw') %>%
+    values_to = 'Raw', names_to = 'LIBRARY_ID') %>%
   filter(Raw > 0) %>%
-  group_by(name) %>%
+  group_by(LIBRARY_ID) %>%
   summarise(Raw = sum(Raw)) -> Total_size
 
 # vs filtered
 
 count %>% 
   pivot_longer(cols = names(count), 
-    values_to = 'Filt') %>% 
+    values_to = 'Filt', names_to = 'LIBRARY_ID') %>% 
   filter(Filt > 0) %>%
-  group_by(name) %>%
+  group_by(LIBRARY_ID) %>%
   summarise(Filt = sum(Filt)) -> Filt_size
 
 Total_size %>% 
   left_join(Filt_size) %>%
   arrange(desc(Raw)) %>%
-  mutate(pct = Raw - Filt) -> n_reads
+  mutate(pct_reads_retained = Filt/Raw) -> n_reads
 
 n_reads %>%
-  mutate(g = substr(name, 1,1)) %>%
-  mutate(name = factor(name, levels = idLev)) %>%
+  mutate(g = substr(LIBRARY_ID, 1,1)) %>%
+  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = idLev)) %>%
   ggplot() +
-  geom_col(aes(x = name, y = pct)) +
-  labs(x = '', y = 'Removed reads') +
+  geom_col(aes(x = LIBRARY_ID, y = pct_reads_retained)) +
+  labs(x = '', y = 'Retained reads (%)') +
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   coord_flip() +
   scale_fill_brewer('', palette = "Set1") +
-  theme_classic() +
+  theme_classic(base_family = "GillSans") +
   theme(
     legend.position = 'top',
     panel.border = element_blank(),
@@ -394,13 +407,17 @@ n_reads %>%
     axis.ticks.y = element_blank(),
     axis.line.y = element_blank()) -> p2
 
-# p1 + p2
+# p+ p1 + p2
 
-n_reads %>% arrange(match(idLev,name)) %>% pull(pct) -> x
-n_genes %>% arrange(match(idLev,name)) %>% pull(pct) -> y
+n_reads %>% left_join(n_genes, by = "LIBRARY_ID") %>% pull(pct_reads_retained) -> x
+n_reads %>% left_join(n_genes, by = "LIBRARY_ID") %>% pull(pct_genes_retained) -> y
 
-n_reads %>% mutate(p = (pct * 100) / Raw)
-n_genes %>% mutate(p = (pct * 100) / Raw)
+# n_reads %>% arrange(match(idLev,LIBRARY_ID)) %>% pull(pct_reads_retained) -> x
+# n_genes %>% arrange(match(idLev,LIBRARY_ID)) %>% pull(pct_genes_retained) -> y
+
+# stats?
+n_reads %>% mutate(p = (pct_reads_retained * 100) / Raw)
+n_genes %>% mutate(p = (pct_genes_retained * 100) / Raw)
 
 ggdf <- data.frame(idLev, x, y)
 
@@ -412,24 +429,30 @@ ggplot(ggdf, aes(x, y)) +
   ggpubr::stat_cor(method = "pearson", cor.coef.name = "R", p.accuracy = 0.001) +
   geom_point() +
   # geom_text(aes(label = idLev)) +
-  labs(x = 'Reads', y = 'Genes') +
-  theme_bw() +
+  labs(x = 'Reads', y = 'Transcripts') +
+  theme_bw(base_family = "GillSans") +
   theme(panel.border = element_blank()) -> p3
 
-p+ p1 + p3 
+p+ p1 + p2 + p3 
 
 
 # boxplot of reads ----
 
-n_genes %>%
-  mutate(g = substr(name, 1,1)) %>%
-  arrange(desc(pct)) %>%
-  mutate(name = factor(name, levels = unique(name))) %>%
-  ggplot() + geom_col(aes(x = name, y = Raw), fill = 'black') +
-  labs(x = '', y = 'Total genes') +
-  theme_classic() +
-  theme(axis.text.x = element_text(angle = 90,
+n_genes %>% 
+  left_join(mtd) %>%
+  group_by(CONTRASTE_A) %>%
+  arrange(desc(Raw)) %>%
+  mutate(g = substr(LIBRARY_ID, 1,1)) %>%
+  # arrange(desc(pct_genes_retained)) %>%
+  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = unique(LIBRARY_ID))) %>%
+  ggplot() + geom_col(aes(x = LIBRARY_ID, y = Raw, fill = CONTRASTE_A)) + # fill = 'black'
+  labs(x = '', y = 'Total Transcripts') +
+  scale_y_continuous(labels = scales::comma) +
+  theme_classic(base_family = "GillSans") +
+  theme(legend.position = 'bottom',
+    axis.text.x = element_text(angle = 90,
     hjust = 1, vjust = 1, size = 10)) -> pbottom
+
 # ?gtsummary::tbl_survfit() to retrive probs
 
 qprobs <- function(x) { 
@@ -439,18 +462,24 @@ qprobs <- function(x) {
 
 apply(log2(count+1), 2, qprobs) %>% 
   t() %>%
-  as_tibble(rownames = 'id') -> probs_df
+  as_tibble(rownames = 'LIBRARY_ID') -> probs_df
+
+
+
 
 probs_df %>%
+  left_join(mtd) %>%
+  mutate(LIBRARY_ID = factor(LIBRARY_ID,  levels = levels(pbottom$data$LIBRARY_ID))) %>%
   ggplot(., 
-    aes(x = id, ymin = `5%`, lower = `25%`,
+    aes(x = LIBRARY_ID, ymin = `5%`, lower = `25%`,
       middle = `50%`, upper = `75%`, ymax = `95%`)) +
   geom_errorbar(width = 0.3, position = position_dodge(0.6)) +
-  geom_boxplot(width = 0.5, stat = 'identity', position = position_dodge(0.6)) +
+  geom_boxplot(aes(fill = CONTRASTE_A), width = 0.5, stat = 'identity', position = position_dodge(0.6)) +
   labs(y = expression(log[2]~ 'Reads'), x = '') +
   # ylim(1, 5) + 
-  theme_classic() +
+  theme_classic(base_family = "GillSans") +
   theme(
+    legend.position = 'none',
     panel.border = element_blank(),
     axis.text.x = element_blank(),
     axis.ticks.x = element_blank(),
@@ -459,13 +488,42 @@ probs_df %>%
 
 library(patchwork)
 
-ptop / pbottom
+ps <- ptop / pbottom + patchwork::plot_layout(heights = c(1,1.5))
 
+out_path <- '~/Documents/DOCTORADO/human_cancer_dataset/'
+
+ggsave(ps, filename = "filtered_transcripts_and_reads_plots.png", 
+  path = out_path, width = 10, height = 5.5)
+
+
+# CLUSTERING SAMPLES -----
+# Using Bayesian Information Criterion for expectation-maximization, to select kmeans clusters instead of elbow method
+# https://towardsdatascience.com/are-you-still-using-the-elbow-method-5d271b3063bd
+
+data = log2(count+1)
+
+library(mclust)
+
+# d_clust <- Mclust(as.matrix(data), G=1:15, modelNames = mclust.options("emModelNames"))  # TAKE LONG TIME (~ 5 hours)
+
+d_clust$BIC
+
+k <- d_clust$G # 14
+names(k) <- d_clust$modelName
+
+# Top 3 models based on the BIC criterion: 
+#   VEV,14    VEV,15    VEV,13 
+# -20957084 -20965453 -20972947
+
+# POR LO TANTO, EL K PREDICHO MEDIANTE EL METODO BAYESIANO FUE 14, METODO VEV
+# AUNQUE POCO RARO PUES DE LOS 15 VALORES EN G RESULTO 14 EL NUMERO IDEAL. HAY QUE REVISAR!
+plot(d_clust) # CHOOSE OPTION 1
+
+# TEST NbClust method -----
 
 
 # PCA ----
-
-data = log2(count+1)
+ncol(data <- log2(count+1))
 
 PCA = prcomp(t(data), center = FALSE, scale. = FALSE)
 
@@ -475,38 +533,75 @@ sd_ratio <- sqrt(percentVar[2] / percentVar[1])
 
 PCAdf <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2])
 
-PCAdf %>% dist(method = "euclidean") %>% hclust() %>% cutree(., 3) %>% as_tibble(rownames = 'id') %>% mutate(cluster = paste0('C', value)) %>% dplyr::select(-value) -> hclust_res
+d_clust <- Mclust(as.matrix(PCAdf), G=1:15, modelNames = mclust.options("emModelNames"))
 
-n <- length(unique(mtd$Diagnosis))
+PCAdf %>% 
+  dist(method = "euclidean") %>% 
+  hclust() %>% 
+  cutree(., 14) %>% 
+  as_tibble(rownames = 'LIBRARY_ID') %>% 
+  mutate(cluster = paste0('C', value)) %>% 
+  dplyr::select(-value) -> hclust_res
 
-getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
+# getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
 
-axis_col <- structure(getPalette, names = unique(mtd$Diagnosis))
+# wesanderson::wes_palette("Cavalcanti1")
 
+# getPalette <- wesanderson::wes_palette("BottleRocket2", n, type = "continuous")
+
+palette <- c(
+  "#8e0152",
+  "#c51b7d",
+  "#de77ae",
+  "#f1b6da",
+  "#fde0ef",
+  "#f7f7f7",
+  "#e7d4e8",
+  "#c2a5cf",
+  "#9970ab",
+  "#e6f5d0",
+  "#a6dba0",
+  "#5aae61",
+  "#1b7837",
+  "#00441b")
+
+color_vector <- unique(mtd$CONTRASTE_D)
+n <- length(color_vector)
+getPalette <- sample(palette, n)
+
+axis_col <- structure(getPalette, names = color_vector)
+
+c("#e0f3f8", "#abd9e9", "#74add1", "#4575b4", "#313695")
+  
+axis_col[names(axis_col) %in% "SIN_CANCER"] <- "#313695"
 
 PCAdf %>%
-  mutate(sample_id = rownames(.)) %>%
-  mutate(g = substr(sample_id, 1,1)) %>%
-  # left_join(hclust_res) %>%
+  mutate(LIBRARY_ID = rownames(.)) %>%
+  # mutate(g = substr(sample_id, 1,1)) %>%
+  left_join(hclust_res) %>%
   left_join(mtd) %>%
   ggplot(., aes(PC1, PC2)) +
-  # ggforce::geom_mark_hull(aes(group = as.factor(g)), fill = 'grey', con.colour = 'grey') +
-  # geom_point(size = 1, alpha = 0.9, aes(color = Diagnosis)) +
+  ggforce::geom_mark_ellipse(aes(group = as.factor(cluster)),
+    fill = 'grey', con.colour = 'grey') +
+  geom_point(size = 3, alpha = 0.9, aes(color = CONTRASTE_D)) 
+  # coord_fixed(ratio = sd_ratio) 
+  # scale_color_manual(values = axis_col)
   # geom_abline(slope = 0, intercept = 0, linetype="dashed", alpha=0.5) +
   # geom_vline(xintercept = 0, linetype="dashed", alpha=0.5) +
-  ggrepel::geom_text_repel(aes(label = sample_id, color = Diagnosis), 
-    alpha = 1, size = 4, max.overlaps = 10) +
+  ggrepel::geom_text_repel(aes(label = LIBRARY_ID, color = CONTRASTE_B), 
+    alpha = 1, size = 4, max.overlaps = 60) +
   labs(caption = '') +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
-  # theme_classic(base_family = "GillSans", base_size = 16) +
-  theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') +
-  # coord_fixed(ratio = sd_ratio) +
-  scale_color_manual(values = axis_col) -> pcaplot
+  theme_classic(base_family = "GillSans") +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = 'top') -> pcaplot
 
 ggsave(pcaplot, 
   filename = "PCA.png", path = path, 
   width = 10, height = 7)
+
+
+
 
 # Correlation heatmap ----
 
@@ -561,6 +656,9 @@ ggsave(pheat,
 
 
 # Prevalence of features ----
+# TRANSCRIPT VIEW
+
+apply(count_raw, 1, function(x) sum(x > 0)) %>% table()
 
 prevelancedf = apply(count, 1, function(x) sum(x > 0))
 
@@ -585,13 +683,38 @@ dat_text <- prevelancedf %>% group_by(Prevalence) %>% tally() %>%
   mutate(Prevalence = paste0(Prevalence, ' Samples')) %>%
   mutate(Prevalence = factor(Prevalence, levels = unique(Prevalence)))
 
-p1 + geom_text(
+p1 <- p1 + geom_text(
   data    = dat_text, family = "GillSans",
   mapping = aes(x = -Inf, y = -Inf, label = paste0(n, " genes")),
   hjust   = -1, vjust   = -2, label.size = 0.2) + 
   theme_classic(base_size = 7, base_family = "GillSans") +
   labs(x = expression(~Log[2]~('TotalAbundance'~+1)), y = "")
 
+#
+
+ggplot(prevelancedf, aes(TotalAbundance, Prevalence/60)) +
+  stat_density2d(aes(alpha = ..density..), geom = "tile", contour = FALSE) +
+  scale_x_log10("Total Abundance (log10 scale)", labels = scales::comma) +  
+  scale_y_continuous("Prevalence [Frac. Samples]", 
+    labels = scales::percent_format(scale = 100)) +
+  theme_classic(base_family = "GillSans") +
+  theme(legend.position="top") -> ps
+
+ggsave(ps, filename = 'prevalence_and_abundant_density.png', path = path)
+ggsave(p1, filename = 'prevalence_and_abundant_hist.png', path = path, width = 7,height = 5)
+
+# summary
+# apply(count_raw, 1, function(x) sum(x > 0)) %>% table() %>% data.frame()
+
+prevelancedf %>% 
+  count(Prevalence) %>% view()
+  ggplot(aes(Prevalence, n)) + geom_col() +
+  # ggplot(aes(Prevalence)) + 
+  # geom_histogram(binwidth = 1) +
+  theme_classic(base_family = "GillSans") + 
+  scale_y_continuous("Number of transcripts", labels = scales::comma) -> ps
+
+ggsave(ps, filename = 'prevalence_hist.png', path = path, width = 3, height = 3)
 # 
 # (omit) Normalized vs raw data count ----
 # Rarefaction will be useful in evaluations of gene discovery using next-generation sequencing technologies as an analytical approach from theoretical ecology (rarefaction) to evaluate depth of sequencing coverage relative to gene discovery ... Rarefaction suggests that normalization has little influence on the efficiency of gene discovery, at least when working with thousands of reads from a single tissue type. (Hale, M. C., McCormick, et al 2009)
@@ -984,26 +1107,26 @@ hc_genes_ord <- hc_genes$labels[hc_genes$order]
 
 
 DEcount %>% 
-  as_tibble(rownames = 'id') %>%
-  pivot_longer(cols = colnames(DEcount), values_to = 'count', names_to = 'sample_id') %>%
-  # mutate(sample_id = factor(sample_id, levels = hc_sam_order)) %>%
+  as_tibble(rownames = 'TRANSCRIPT') %>%
+  pivot_longer(cols = colnames(DEcount), values_to = 'count', names_to = 'LIBRARY_ID') %>%
+  # mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_sam_order)) %>%
   # mutate(id = factor(id, levels = hc_genes_ord)) %>%
   left_join(mtd) %>%
   filter(count > 0) -> countLong
 
 countLong %>% 
-  distinct(sample_id, Diagnosis) %>% 
+  distinct(LIBRARY_ID, CONTRASTE_A) %>% 
   # mutate(col = ifelse(g1 %in% 'C', 'red', 'blue')) %>%
-  arrange(match(sample_id, hc_sam_order)) -> coldf 
+  arrange(match(LIBRARY_ID, hc_sam_order)) -> coldf 
 
 
-n <- length(unique(coldf$Diagnosis))
+n <- length(unique(coldf$CONTRASTE_A))
 
-getPalette <- RColorBrewer::brewer.pal(n, 'Paired')
+getPalette <- RColorBrewer::brewer.pal(n+1, 'Paired')
 
-axis_col <- structure(getPalette, names = unique(coldf$Diagnosis))
-axis_col <- getPalette[match(mtd$Diagnosis, names(axis_col))]
-axis_col <- structure(axis_col, names = unique(coldf$sample_id))
+axis_col <- structure(getPalette, names = unique(coldf$CONTRASTE_A))
+axis_col <- getPalette[match(mtd$CONTRASTE_A, names(axis_col))]
+axis_col <- structure(axis_col, names = unique(coldf$LIBRARY_ID))
 
 
 
@@ -1011,7 +1134,7 @@ library(ggh4x)
 
 countLong %>%
   # sample_n(1000) %>%
-  ggplot(aes(x = sample_id, y = id, fill = log2(count+1))) + 
+  ggplot(aes(x = LIBRARY_ID, y = TRANSCRIPT, fill = log2(count+1))) + 
   geom_raster() + 
   theme_classic(base_size = 12, base_family = "GillSans") +
   scale_fill_viridis_c(name = expression(Log[2]~'(count+1)')) +
@@ -1046,6 +1169,7 @@ ggsave(pheat,
 rm(list = ls())
 
 library(tidyverse)
+
 library(topGO)
 
 runtopGO <- function(topGOdata, topNodes = 20, conservative = TRUE) {

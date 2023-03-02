@@ -332,6 +332,9 @@ m <- DESeq2::counts(dds, normalized=T)
 
 rbind(up_df, down_df) %>% distinct(ids) %>% pull() -> query.ids
 
+rbind(up_df) %>% distinct(ids) %>% pull() -> query.ids
+
+
 dim(m <- m[rownames(m) %in% query.ids,])
 
 dist.method <- 'euclidean'
@@ -350,8 +353,27 @@ hc_genes <- hclust(dist(m, method = dist.method),
 
 hc_genes_ord <- hc_genes$labels[hc_genes$order]
 
+w_ids <- 'STRG.10025.1'
+
+m %>% 
+  as_tibble(rownames = 'ids') %>%
+  pivot_longer(cols = names(data), names_to = 'sample_id') %>%
+  left_join(mtd) %>%
+  # mutate(ids = factor(ids ,levels = hc_genes_ord)) %>%
+  mutate(sample_id = factor(sample_id, levels = hc_sam_ord)) %>%
+  filter(ids %in% w_ids) %>%
+  # mutate(value = log2(value+1)) %>%
+  ggplot(aes(x=sample_id, y = value, fill = Type)) +
+  geom_col() +
+  labs(y = paste0("Expression of ", w_ids, " gene")) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, 
+      hjust = 1, vjust = 1, size = 7)) +
+  facet_grid(~g2, scales = 'free_x', space = 'free_x')
+  
 
 # data[rownames(data) %in% query.ids ,] %>% 
+rbind(up_df) %>% filter(ids %in% w_ids)
 
 m %>% 
   as_tibble(rownames = 'ids') %>%
@@ -368,9 +390,10 @@ m %>%
     axis.ticks.y = element_blank(),
     axis.line.y = element_blank(),
     axis.text.x = element_text(angle = 90, 
-      hjust = 1, vjust = 1, size = 7)) +
+      hjust = 1, vjust = 1, size = 7)) + 
   scale_fill_gradientn('Log2(x+1)', colours = pal) +
-  ggh4x::facet_grid2(~g2, scales = 'free_x', space = 'free_x')
+  facet_grid(~Type, scales = 'free_x', space = 'free_x')
+  # ggh4x::facet_grid2(~g2, scales = 'free_x', space = 'free_x')
 
 # upset ----
 # library(ggupset)

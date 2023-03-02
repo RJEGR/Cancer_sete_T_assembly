@@ -12,8 +12,8 @@
 
 # separate exclusive (distinct) differential expressed transcripts found in the multiple cancer comparison vs control
 
-# up-regulated means transcripts well expressed in cancer samples
-# down-regulated means transcripts well expressed in control or down-expressed in cancer
+# up-regulated means transcripts well expressed in cancer samples (log2FoldChange < 0 OR NEGATIVE)
+# down-regulated means transcripts well expressed in control (log2FoldChange > 0 OR POSITIVE) or down-expressed in cancer
 
 # 1) Evaluate a descriptive  functional annotation of Diff Exp transcripts
 # 2) run the gene enrichment ontology
@@ -24,7 +24,7 @@ options(stringsAsFactors = FALSE) #
 
 library(tidyverse)
 library(topGO)
-library(ggupset)
+library(ggupset) # devtools::install_github("const-ae/ggupset")
 library(patchwork)
 
 source("/Users/cigom/Documents/GitHub/Cancer_sete_T_assembly/functions.R")
@@ -195,6 +195,10 @@ save(allRes_up, allRes_down, distinct_trans_up, distinct_trans_down,
 
 
 save(x, up_df, down_df, data, prevelancedf, mtd, file = paste0(path, '/count_annot_multiple_contrast_vs_control_up_down_genes.Rdata'))
+
+
+# load(paste0(path, '/multiple_contrast_vs_control_up_down_topgo.Rdata'))
+# load(paste0(path, '/count_annot_multiple_contrast_vs_control_up_down_genes.Rdata'))
 
 # nrow(topGOdown.p <- allRes_down[which(as.numeric(allRes_down$classicKS) < 0.05),])
 
