@@ -3,6 +3,9 @@
 rm(list = ls()) # Limpiar la memoria de la sesion de R
 if(!is.null(dev.list())) dev.off()
 
+library(tidyverse)
+# library(DESeq2)
+
 options(stringsAsFactors = FALSE) # 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
 
@@ -121,22 +124,35 @@ ggsave(psave, path = out_path, filename = 'eggnog_prevalence_transcripts.png',
   width = 10, height = 6) 
 
 # Add aditional features as contrast ----
+dds_f <- list.files(path = "~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/",
+  pattern ="CONTRAST_", full.names = T)
 
-df <- xlsx::read.xlsx("~/Documents/DOCTORADO/human_cancer_dataset/CONTRAST_A_Annot_count_down_up_genes.xlsx",sheetIndex = "RESULTS") # tarda muchisimo
+x <- dds_f[1]
 
-sam_group <- unique(df$sampleB)
+alpha = 0.05; lfcThreshold = 2
 
+res.p <- dds2res(read_rds(x)) %>%
+  mutate(filter_col = NA) %>% 
+  mutate(filter_col = ifelse(padj < alpha & abs(log2FoldChange) > lfcThreshold, 'sigfc', filter_col)) %>%
+  drop_na(filter_col) %>% select(-filter_col) %>%
+  select(-lfcSE, -stat) %>%
+  prep_multiple_contrast_output() # requiere swissdf and MAP files 
 
-df %>% as_tibble()
+dds<- lapply(dds_f, function(x) {dds2res(read_rds(x))})
+
+res.p <- res.p %>% 
+  mutate(group = ifelse(log2FoldChange > lfcThreshold, 'CONTROL-UP', "CANCER-UP"))
+
+sam_group <- unique(res.p$group)
 
 out <- list()
 
 for(i in sam_group) {
   j <- i
   
-  up_df %>% filter(sampleB %in% j) %>%
-    distinct(ids) %>%
-    pull(ids) -> which_ids
+  res.p %>% filter(group %in% j) %>%
+    distinct(transcript_id) %>%
+    pull(transcript_id) -> which_ids
   
   kegg_df <- get_eggnog(x, which_ids)
   out[[j]] <- kegg_df
@@ -149,57 +165,31 @@ kegg_df <- do.call(rbind, out)
 
 # Up genes ----
 kegg_df %>% as_tibble(rownames = 'group') %>%
-  mutate(group = sapply(strsplit(group, "[.]"), "[", 1)) -> kegg_df_up
-
-# Down genes ----
-
-out <- list()
-
-for(i in sam_group) {
-  j <- i
-  
-  down_df %>% filter(sampleB %in% j) %>%
-    distinct(ids) %>%
-    pull(ids) -> which_ids
-  
-  kegg_df <- get_eggnog(x, which_ids)
-  out[[j]] <- kegg_df
-  
-}
-
-kegg_df <- do.call(rbind, out)
-
-kegg_df %>% as_tibble(rownames = 'group') %>%
-  mutate(group = sapply(strsplit(group, "[.]"), "[", 1)) -> kegg_df_down
-
-
-kegg_df <- rbind(
-  data.frame(kegg_df_up, lfcT = up),
-  data.frame(kegg_df_down, lfcT = down))
-
+  mutate(group = sapply(strsplit(group, "[.]"), "[", 1)) -> kegg_df
 
 col_palette <- cogs %>% distinct(code, clrs)
 col_palette <- structure(col_palette$clrs, names = col_palette$code)
 
 
-kegg_df %>% group_by(lfcT, group) %>%
+# CUANTOS KEGG VS CUANTOS GENES (% DE ANOTACION)
+kegg_df %>% group_by(group) %>%
   summarise(n = sum(Freq))
 # ungroup() %>% summarise(N = sum(n))
 
-res.p %>% group_by(sampleB, lfcT) %>% tally()
+res.p %>% group_by(group) %>% tally()
 
-cogs %>% left_join(kegg_df) %>%
+kegg_df %>% left_join(cogs, by = "code") %>%
   drop_na(Freq) %>%
   filter(Freq > 2) %>%
-  filter(!grepl('unknown', name)) %>%
-  group_by(group, lfcT) %>%
+  # filter(!grepl('unknown', name)) %>%
+  group_by(group) %>%
   arrange(desc(Freq)) %>%
   mutate(name = factor(name, levels = unique(name))) %>%
   ggplot(aes(y = Freq, x = name, fill = code)) + 
   geom_col() +
   labs(x = '' , y = 'Number of transcripts') +
   # facet_wrap(lfcT ~ group, scales = 'free_y') +
-  facet_grid(lfcT ~ group) +
+  facet_grid( ~ group) +
   coord_flip() +
   geom_text(aes(label = Freq), size = 2, hjust = -0.05, family = "GillSans") +
   theme_bw(base_family = "GillSans") -> psave
@@ -207,5 +197,4 @@ cogs %>% left_join(kegg_df) %>%
 psave + scale_fill_manual(values = col_palette) +
   theme(legend.position = 'none') -> psave
 
-ggsave(psave, path = path, filename = 'eggnog_up_down_sign.png', 
-  width = 10, height = 6) 
+ggsave(psave, path = out_path, filename = 'eggnog_prevalence_transcripts2.png', width = 7) 
