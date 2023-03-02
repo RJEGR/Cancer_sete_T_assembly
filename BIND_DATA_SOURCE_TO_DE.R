@@ -27,7 +27,7 @@ swissdf <- read_tsv(swiss_f) %>%
   filter(identity == max(identity)) %>%
   ungroup() %>%
   distinct(transcript, uniprot, identity, name, genus, orf) %>%
-  rename("transcript_id"="transcript", "protein_name"="name")
+  dplyr::rename("transcript_id"="transcript", "protein_name"="name")
 
 # DB_f <- list.files(path = path, pattern = 'Trinotate.xls$', full.names = T)
 # annot <- data.table::fread(DB_f, sep = '\t', na.strings = '.')
