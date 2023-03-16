@@ -205,7 +205,7 @@ prep_multiple_contrast_output <- function(df, select_exclusive = T) {
 # 8) loop the contrasts results ----
 
 
-rds_f <- rds_f_l[4]
+rds_f <- rds_f_l[1]
 
 dds <- read_rds(rds_f)
 
@@ -221,7 +221,7 @@ res.p <- res %>%
   drop_na(filter_col) %>% select(-filter_col) %>%
   select(-lfcSE, -stat)
 
-res.p %>% count(sampleB) %>% view()
+# res.p %>% count(sampleB) %>% view()
 
 # str(query.ids <- unique(res.p$transcript_id))
 
@@ -270,6 +270,62 @@ res.p.out %>%
 
 # xlsx::write.xlsx(res.p.out, file = file_name, sheetName = "RESULTS", row.names = FALSE)
 write_excel_csv(res.p.out, file = file_name)
+
+# CONCAT IN A SINGLE BATCH -----
+
+dds_f <- list.files(path = "~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/",
+  pattern ="CONTRAST_", full.names = T)
+
+bind_data_sources <- function(x, alpha = 0.05, lfcThreshold = 2) {
+  
+  rds_f <- x
+  
+  dds <- read_rds(rds_f)
+  
+  res <- dds2res(dds)
+  
+  # 9) Filter significant transcripts ----
+  
+  res.p <- res %>% 
+    mutate(filter_col = NA) %>% 
+    mutate(filter_col = ifelse(padj < alpha & abs(log2FoldChange) > lfcThreshold, 'sigfc', filter_col)) %>%
+    drop_na(filter_col) %>% select(-filter_col) %>%
+    select(-lfcSE, -stat)
+  
+  # 10) Generate single / exclusive transcripts per condition ----
+  
+  res.p.out <- prep_multiple_contrast_output(res.p)
+  
+  
+  # 11) Bind data count to output ----
+  # vst <- vst(dds) 
+  
+  # count <- as_tibble(assay(dds), rownames = "transcript_id")
+  
+  # nrow(res.p.out <- res.p.out %>% left_join(count))
+  
+  res.p.out <- res.p.out %>% arrange(sampleB) 
+  
+  return(res.p.out)
+  
+}
+
+out <- lapply(dds_f, bind_data_sources)
+
+res.p <- do.call(rbind, out)
+
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
+count_f <- list.files(path, pattern = 'counts.matrix$',  full.names = TRUE)
+
+dim(raw_count <- read.delim(count_f, sep = "\t", header = T, row.names = 1))
+raw_count <- as_tibble(raw_count, rownames = "transcript_id")
+nrow(res.p.out <- res.p %>% left_join(raw_count))
+
+out_path <- "~/Documents/DOCTORADO/human_cancer_dataset/"
+
+file_name <- "ALL_MULTIPLE_CONTRAST"
+file_name <- paste0(out_path, paste(file_name,collapse = '_'),'_Annot_count_down_up_genes.xls')
+
 
 # end ----
 
