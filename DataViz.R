@@ -674,7 +674,7 @@ prevelancedf %>%
   arrange(Prevalence) %>%
   mutate(Prevalence = paste0(Prevalence, ' Samples')) %>%
   mutate(Prevalence = factor(Prevalence, levels = unique(Prevalence))) %>%
-  mutate(TotalAbundance = log2(TotalAbundance+1)) %>%
+  mutate(TotalAbundance = log2(TotalAbundance+1)) %>% # edgeR::cpm(count) 
   ggplot(aes(TotalAbundance)) + geom_histogram() + 
   facet_wrap(~ Prevalence, scales = 'free_y') -> p1
 
