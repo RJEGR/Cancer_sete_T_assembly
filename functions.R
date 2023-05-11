@@ -50,18 +50,23 @@ runtopGO <- function(topGOdata, topNodes = 20, conservative = TRUE) {
   return(allRes)
 }
 
-GOenrichment <- function(df, cons = T, onto = "BP", Nodes = Inf) {
+
+GOenrichment <- function(query.p, query.names, gene2GO, cons = T, onto = "BP", Nodes = Inf) {
   
-  # df needs to include follow cols: "ids"            "sampleB"        "GO.ID" (list)      and    "padj" 
-  
-  df %>% pull(padj) -> query.p
-  df %>% pull(ids) -> query.names
+  require(topGO)
   
   names(query.p) <- query.names
   
+  
   # keep MAP of query genes
-  gene2GO <- df$GO.ID
-  names(gene2GO) <- query.names
+  
+  keep <- names(gene2GO) %in% names(query.p) 
+  
+  gene2GO <- gene2GO[keep]
+  
+  keep <- names(query.p) %in% names(gene2GO)
+  
+  query.p <- query.p[keep]
   
   description <- "complete topGO enrichment using split_annot"
   
@@ -85,7 +90,7 @@ GOenrichment <- function(df, cons = T, onto = "BP", Nodes = Inf) {
   } else {
     topNodes <- Nodes
   }
-
+  
   
   allRes <- runtopGO(topGOdata, topNodes = Nodes, conservative = cons)
   
