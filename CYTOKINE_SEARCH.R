@@ -38,9 +38,41 @@ dim(raw_count <- read.delim(count_f, sep = "\t", header = T, row.names = 1))
 
 which_col <- names(raw_count)
 
-# global presence of Cytokine -----
+# global presence of relevant proteins -----
 
-global_cyk_swiss <- swissdf %>%  filter(grepl("Cytokine", protein_name)) %>% distinct(transcript_id, .keep_all = T)
+which_histo <- swissdf %>%  
+  filter(grepl("histocompatibility", protein_name)) %>% 
+  distinct(uniprot) %>% pull() %>%
+  paste0("^",., collapse = "|")
+
+which_vav <- swissdf %>%
+  filter(grepl("Guanine nucleotide exchange facto", protein_name)) %>%
+  distinct(uniprot) %>% pull() %>%
+  paste0("^",., collapse = "|")
+
+which_chemok <- swissdf %>%
+  filter(grepl("chemokine", protein_name)) %>%
+  distinct(uniprot) %>% pull() %>%
+  paste0("^",., collapse = "|")
+
+which_tcrep <- swissdf %>%
+  filter(grepl("T cell receptor beta ", protein_name)) %>%
+  distinct(uniprot) %>% pull() %>%
+  paste0("^",., collapse = "|")
+
+which_prot <- c("VAV1", "CCL28", "ITK", "CXC19", "IL6", "JAK", "RAC2", "NCF1", "STAT1", "IL1A", "CSF1", "CDC42")
+
+which_prot <- paste0("^",which_prot, collapse = "|")
+
+str(which_prot <- paste0(which_histo, which_vav, which_chemok, which_tcrep, which_prot))
+
+# swissdf %>% view()
+
+global_cyk_swiss <- swissdf %>%  
+  filter(grepl(which_chemok, uniprot)) %>% 
+  distinct(transcript_id, .keep_all = T)
+
+# global_cyk_swiss <- swissdf %>%  filter(grepl("histocompatibility", protein_name)) %>% distinct(transcript_id, .keep_all = T)
 
 query.genes <- global_cyk_swiss$transcript_id
 
