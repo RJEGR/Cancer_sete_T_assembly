@@ -401,10 +401,6 @@ p <- DF %>%
 ggsave(p, filename = "DESEQ2LINEPLOT.png", 
   path = path, width = 8.5, height = 7.5, device = png, dpi = 300)
 
-log2(2.36/27.08)
-
-2.36
-27.08
 
 DF %>%
   dplyr::mutate(Design = dplyr::recode_factor(Design, !!!recode_to)) %>%
@@ -486,10 +482,12 @@ genes_order <- hc_genes$labels[hc_genes$order]
 
 
 recode_to <- res.p.out %>% filter(transcript_id %in% genes_order) %>% 
-  distinct(transcript_id, uniprot) %>%
+  distinct(transcript_id, uniprot, protein_name) %>%
   separate(uniprot,into = c("uniprot", "genus"), sep = "_")
 
-recode_to <- structure(recode_to$uniprot, names = recode_to$transcript_id)
+# recode_to <- structure(recode_to$uniprot, names = recode_to$transcript_id)
+
+recode_to <- structure(recode_to$protein_name, names = recode_to$transcript_id)
 
 identical(sort(names(recode_to)),sort(genes_order))
 
@@ -520,7 +518,7 @@ p <- MLONG %>%
   theme(
     legend.position = "top",
     axis.ticks.x = element_blank(),
-    axis.text.x = element_text(angle = 90, hjust = -0.15, vjust = 1, size = 7),
+    axis.text.x = element_text(angle = 90, hjust = -0.15, vjust = 1, size = 5),
     strip.background = element_rect(fill = 'grey89', color = 'white'),
     panel.border = element_blank(),
     plot.title = element_text(hjust = 0),
