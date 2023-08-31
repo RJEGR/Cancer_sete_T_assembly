@@ -1,11 +1,13 @@
 
 
 rm(list = ls()) # Limpiar la memoria de la sesion de R
+
 if(!is.null(dev.list())) dev.off()
 
 options(stringsAsFactors = FALSE) # 
 
 library(DESeq2)
+
 library(tidyverse)
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
