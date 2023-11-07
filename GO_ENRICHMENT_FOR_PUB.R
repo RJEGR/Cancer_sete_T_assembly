@@ -31,26 +31,25 @@ UPSETDF <- RES.P %>%
   group_by(transcript_id) %>%
   summarise(across(sampleB, .fns = list), n = n())
 
-
-
 # Levels <- RES.P %>% distinct(sampleB) %>% pull()
 
 UPSETDF %>%
-  ggplot(aes(x = sampleB)) + # , fill = SIGN
+  mutate(col = ifelse(n == 1, "A", "B")) %>%
+  ggplot(aes(x = sampleB, fill = col)) + # , fill = SIGN
   geom_bar(position = position_dodge(width = 1)) +
   geom_text(stat='count', aes(label = after_stat(count)), 
     position = position_dodge(width = 1), vjust = -0.5, family = "GillSans", size = 3.5) +
-  scale_x_upset(order_by = "freq", reverse = F) +
+  scale_x_upset(order_by = "degree", reverse = F) +
   theme_bw(base_family = "GillSans") +
   theme_combmatrix(combmatrix.panel.point.color.fill = "black",
     combmatrix.panel.line.size = 0, base_family = "GillSans", base_size = 16) +
   axis_combmatrix(levels = recode_to) +
-  labs(x = '', y = 'Number of transcripts (up-expressed') +
+  labs(x = '', y = 'Number of transcripts (up-expressed)') +
   # scale_color_manual("", values = col) +
-  # scale_fill_manual("", values =  col) +
+  scale_fill_manual("", values =  c("red", "black")) +
   guides(fill = guide_legend(title = "", nrow = 1)) -> p1
 
-p1 <- p1 + theme(legend.position = "top",
+p1 <- p1 + theme(legend.position = "none",
   panel.border = element_blank(),
   plot.title = element_text(hjust = 0),
   plot.caption = element_text(hjust = 0),
@@ -59,6 +58,10 @@ p1 <- p1 + theme(legend.position = "top",
   panel.grid.major.x = element_blank(),
   panel.grid.minor.x = element_blank(),
   strip.background.y = element_blank())
+
+ggsave(p1, filename = 'GO_ENRICHMENT_FOR_PUB_UPSET.png', 
+  path = path, width = 10, height = 6, device = png, dpi = 300)
+
 
 # PULL DISTINCT TRASCRIPTS
 
@@ -76,6 +79,14 @@ source(URL)
 
 path <- "~/Documents/DOCTORADO/human_cancer_dataset/annot/"
 
+orgdb <- "org.Hs.eg.db"
+
+# semdata <- GOSemSim::godata(orgdb, ont="BP")
+
+# write_rds(semdata, file = paste0(path, "hsGO_PB.rds"))
+
+semdata <- read_rds(paste0(path, "hsGO_PB.rds"))
+
 go_file <- paste0(path, 'Trinotate_report.xls.gene_ontology')
 
 MAP <- topGO::readMappings(go_file)
@@ -87,53 +98,138 @@ STRG2GO <- data.frame(transcript_id = rep(names(MAP),
   group_by(sampleB, transcript_id) %>%
   summarise(across(GO.ID, .fns = paste_go), n = n())
 
+gene2GO <- split(strsplit(STRG2GO$GO.ID, ";") , STRG2GO$transcript_id)
 
-STRG2GO <- split(strsplit(STRG2GO$GO.ID, ";") , STRG2GO$sampleB)
-
-STRG2GO <- lapply(STRG2GO, unlist)
-
-GOenrichment(p, q, STRG2GO, Nodes = 10, onto = "BP", mapping = NULL)
+gene2GO <- lapply(gene2GO, unlist)
 
 
-for (i in 1:length(STRG2GO)) {
-  
-  q <- STRG2GO[i]
-  
-  cat("\nUsing ",names(q), " Contrast...\n")
+# BOOSTRAPING
+
+boostrap_enrichment <- function(STRG2GO, which_sam = "(A) Metastasis") {
   
   
-  gene2GO <- STRG2GO[names(STRG2GO) %in% names(q)][[1]]
+  query.names <- STRG2GO %>% filter(sampleB %in% which_sam) %>% distinct(transcript_id) %>% pull()
   
-  n <- length(query.go)
+  query.p <- RES.P %>% filter(transcript_id %in% query.names) %>% 
+    group_by(transcript_id) %>% sample_n(1) %>%
+    pull(padj, name = transcript_id)
   
-  cat("\nUsing ",n, " GO terms\n")
+  query.p <- query.p[match(query.names, names(query.p))]
   
-  # p <- query.p[i]
+  identical(names(query.p), query.names)
   
-  query.p <- rep(0.05, n)
+  allRes <- list()
   
-  description <- "complete topGO enrichment using split_annot"
+  for (i in c(20, 50, 75, 100, length(query.p))) {
+    
+    
+    df <- GOenrichment(query.p, query.names, gene2GO, Nodes = i, onto = "BP")
+    
+    allRes[[i]] <- data.frame(df, Top = i)
+  }
   
+  data <- do.call(rbind, allRes) %>% as_tibble() %>% mutate(sampleB = which_sam)
   
-  topGOdata <- new("topGOdata", 
-    ontology = "BP", 
-    description = description,
-    allGenes = query.p,
-    # geneSel = function(x) { x == 1 },
-    geneSel = function(x) x,
-    annot = annFUN.gene2GO,
-    # mapping = hsGO, # omit this flag
-    gene2GO = gene2GO)
-  
-  
-  df <- GOenrichment(p, q, STRG2GO, Nodes = 10, onto = "BP", mapping = NULL)
-  
-  allRes[[i]] <- data.frame(df, Name = q)
+  return(data)
 }
 
-DF1 <- do.call(rbind, allRes) %>% as_tibble() %>% mutate(facet = CONTRAST)
+# boostrap_enrichment(STRG2GO, which_sam = "(A) Metastasis")
 
-# STRG2GO <- data.frame(ids = rep(names(MAP[keep]),
-#   sapply(MAP[keep], length)),
-#   GO.ID = unlist(MAP[keep]), row.names = NULL) %>% as_tibble()
-# 
+OUT <- lapply(recode_to, function(x) boostrap_enrichment(STRG2GO, which_sam = x))
+
+OUT <- do.call(rbind, OUT) %>% as_tibble() 
+
+str(GO.IDS <- OUT %>% distinct(GO.ID) %>% pull())
+
+SEM <- SEMANTIC_SEARCH(GO.IDS, orgdb = "org.Hs.eg.db",semdata = semdata)
+
+OUT <- OUT %>% left_join(SEM, by = c("GO.ID" = "go"))
+
+write_rds(OUT, file = paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
+
+OUT <- read_rds(paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
+
+# BIND FIVE CANCER UP-EXPRESSED
+
+nrow(QUERY <- UPSETDF %>% filter(n == 5) %>% mutate(sampleB = "FiveCancer"))
+
+STRG2GO <- data.frame(transcript_id = rep(names(MAP),
+  sapply(MAP, length)),
+  GO.ID = unlist(MAP), row.names = NULL) %>% as_tibble() %>%
+  right_join(QUERY) %>%
+  group_by(sampleB, transcript_id) %>%
+  summarise(across(GO.ID, .fns = paste_go), n = n())
+
+gene2GO <- split(strsplit(STRG2GO$GO.ID, ";") , STRG2GO$transcript_id)
+
+gene2GO <- lapply(gene2GO, unlist)
+
+OUTFIVE <- boostrap_enrichment(STRG2GO, which_sam = "FiveCancer")
+
+OUT <- rbind(OUT, OUTFIVE)
+
+OUT %>%
+  filter(p.adj.ks < 0.05) %>%
+  mutate(sampleB = factor(sampleB, levels = recode_to)) %>%
+  mutate(Top = ifelse(!Top %in% c(20, 50, 75, 100), "All", Top)) %>%
+  mutate(Top = factor(as.character(Top), levels = c(20, 50, 75, 100, "All"))) %>%
+  ggplot(aes(x = Top, y = Term, fill = -log10(p.adj.ks))) +
+  geom_tile(color = 'white', linewidth = 0.2) +
+  facet_grid(parentTerm+sampleB ~., switch = "y", scales = "free_y") +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  # guides(fill = "none") +
+  labs(y = "Biological process (Up-expressed)", x = "Top Enrichment") +
+  scale_fill_viridis_c("-log10(padj)", option = "inferno", direction = -1) +
+  theme(legend.position = "top",
+    axis.text.y.left = element_blank(),
+    axis.ticks.y.left = element_blank(),
+    strip.background.x = element_rect(fill = 'grey89', color = 'white'),
+    strip.text.y.left = element_text(angle = 0, size = 10, hjust = 1),
+    strip.background.y = element_rect(fill = 'white', color = 'white'),
+    panel.border = element_blank(),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.y = element_text(angle = 0, size = 10),
+    axis.text.x = element_text(angle = 90, size = 10)) -> p
+
+
+ggsave(p, filename = 'GO_ENRICHMENT_FOR_PUB2.png', path = path, width = 10, height = 12, device = png, dpi = 300)
+
+# BY BARS
+
+OUT %>%
+  filter(Top == 50) %>%
+  group_by(sampleB, parentTerm) %>%
+  summarise(size = sum(size)) %>%
+  mutate(size = size / max(size)) %>%
+  mutate(parentTerm = fct_reorder2(parentTerm, sampleB, size, .desc = F)) %>%
+  ggplot(aes(y = parentTerm, x = size)) + # 
+  geom_segment(aes(x = size, xend = 0, yend = parentTerm), size = 4) +
+  facet_grid(sampleB ~ ., switch = "y", scales = "free_y") + 
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  labs(y = "Biological process (Up-expressed)", x = "Enrichment frac.") +
+  # scale_fill_viridis_c("-log10(padj)", option = "inferno") +
+  theme(legend.position = "top",
+    # axis.text.y.left = element_blank(),
+    # axis.ticks.y.left = element_blank(),
+    strip.background = element_rect(fill = 'grey89', color = 'white'),
+    # strip.text.y.left = element_text(angle = 0, size = 10, hjust = 1),
+    # strip.background.y = element_rect(fill = 'white', color = 'white'),
+    panel.border = element_blank(),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.text.y = element_text(angle = 0, size = 10),
+    axis.text.x = element_text(angle = 90, size = 10)) -> p2
+  
+  
+
+ggsave(p2, filename = 'GO_ENRICHMENT_FOR_PUB_BAR.png', path = path, width = 10, height = 12, device = png, dpi = 300)
+
