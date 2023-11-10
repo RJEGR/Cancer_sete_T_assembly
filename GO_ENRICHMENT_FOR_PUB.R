@@ -65,11 +65,11 @@ ggsave(p1, filename = 'GO_ENRICHMENT_FOR_PUB_UPSET.png',
 
 # PULL DISTINCT TRASCRIPTS
 
-nrow(QUERY <- UPSETDF %>% filter(n == 1) %>% unnest(sampleB) )
+nrow(QUERY <- UPSETDF %>% filter(n == 1) %>% unnest(sampleB) ) # 1392
 
 # sanity check, 
 
-QUERY %>% distinct(transcript_id)
+nrow(QUERY %>% distinct(transcript_id)) # 1392
 
 # ANNOT
 
@@ -139,16 +139,6 @@ OUT <- lapply(recode_to, function(x) boostrap_enrichment(STRG2GO, which_sam = x)
 
 OUT <- do.call(rbind, OUT) %>% as_tibble() 
 
-str(GO.IDS <- OUT %>% distinct(GO.ID) %>% pull())
-
-SEM <- SEMANTIC_SEARCH(GO.IDS, orgdb = "org.Hs.eg.db",semdata = semdata)
-
-OUT <- OUT %>% left_join(SEM, by = c("GO.ID" = "go"))
-
-write_rds(OUT, file = paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
-
-OUT <- read_rds(paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
-
 # BIND FIVE CANCER UP-EXPRESSED
 
 nrow(QUERY <- UPSETDF %>% filter(n == 5) %>% mutate(sampleB = "FiveCancer"))
@@ -166,7 +156,19 @@ gene2GO <- lapply(gene2GO, unlist)
 
 OUTFIVE <- boostrap_enrichment(STRG2GO, which_sam = "FiveCancer")
 
-OUT <- rbind(OUT, OUTFIVE)
+OUT <- rbind(select_at(OUT, names(OUTFIVE)), OUTFIVE)
+
+str(GO.IDS <- OUT %>% distinct(GO.ID) %>% pull() %>% sort())
+
+SEM <- SEMANTIC_SEARCH(GO.IDS, orgdb = "org.Hs.eg.db",semdata = semdata)
+
+OUT <- OUT %>% left_join(SEM, by = c("GO.ID" = "go"))
+
+write_rds(OUT, file = paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
+
+OUT <- read_rds(paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
+
+# PLOT
 
 OUT %>%
   filter(p.adj.ks < 0.05) %>%
@@ -201,24 +203,28 @@ ggsave(p, filename = 'GO_ENRICHMENT_FOR_PUB2.png', path = path, width = 10, heig
 
 # BY BARS
 
+# https://trinkerrstuff.wordpress.com/2016/12/23/ordering-categories-within-ggplot2-facets/
+
+# https://juliasilge.com/blog/reorder-within/
+
 OUT %>%
   filter(Top == 50) %>%
-  group_by(sampleB, parentTerm) %>%
-  summarise(size = sum(size)) %>%
+  group_by(sampleB) %>%
   mutate(size = size / max(size)) %>%
-  mutate(parentTerm = fct_reorder2(parentTerm, sampleB, size, .desc = F)) %>%
-  ggplot(aes(y = parentTerm, x = size)) + # 
-  geom_segment(aes(x = size, xend = 0, yend = parentTerm), size = 4) +
-  facet_grid(sampleB ~ ., switch = "y", scales = "free_y") + 
+  filter(size > 0) %>% 
+  arrange(desc(size), .by_group = T) %>%
+  mutate(Label = Term, row_number = row_number(Label)) %>% 
+  mutate(Label = factor(paste(Label, row_number, sep = "__"), 
+    levels = rev(paste(Label, row_number, sep = "__")))) %>%
+  ggplot(aes(y = Label, x = size, color = -log10(p.adj.ks))) + # 
+  facet_wrap(~ sampleB, nrow = 3, ncol = 2, scales = "free_y") +
+  geom_segment(aes(xend = 0, yend = Label), linewidth = 1.5) +
+  scale_y_discrete(labels = function(x) gsub("__.+$", "", x)) +
+  labs(y = "Biological process (Up-expressed)", x = "Enrichment ratio") +
+  scale_color_viridis_c("-log10(padj)", option = "inferno") +
   theme_bw(base_family = "GillSans", base_size = 12) +
-  labs(y = "Biological process (Up-expressed)", x = "Enrichment frac.") +
-  # scale_fill_viridis_c("-log10(padj)", option = "inferno") +
   theme(legend.position = "top",
-    # axis.text.y.left = element_blank(),
-    # axis.ticks.y.left = element_blank(),
     strip.background = element_rect(fill = 'grey89', color = 'white'),
-    # strip.text.y.left = element_text(angle = 0, size = 10, hjust = 1),
-    # strip.background.y = element_rect(fill = 'white', color = 'white'),
     panel.border = element_blank(),
     plot.title = element_text(hjust = 0),
     plot.caption = element_text(hjust = 0),
@@ -226,10 +232,12 @@ OUT %>%
     panel.grid.major.y = element_blank(),
     panel.grid.minor.x = element_blank(),
     panel.grid.major.x = element_blank(),
-    axis.text.y = element_text(angle = 0, size = 10),
-    axis.text.x = element_text(angle = 90, size = 10)) -> p2
-  
+    axis.text.y = element_text(angle = 0, size = 7)
+    # axis.text.x = element_text(angle = 90, size = 7)
+    ) -> p2
+
+# p2
   
 
-ggsave(p2, filename = 'GO_ENRICHMENT_FOR_PUB_BAR.png', path = path, width = 10, height = 12, device = png, dpi = 300)
+ggsave(p2, filename = 'GO_ENRICHMENT_FOR_PUB_BAR2.png', path = path, width = 10, height = 12, device = png, dpi = 300)
 
