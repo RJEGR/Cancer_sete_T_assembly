@@ -54,8 +54,8 @@ p <- .RES %>%
   geom_abline(slope = 0, intercept = -log10(0.05), linetype="dashed", alpha=0.5) +
   geom_vline(xintercept = 1, linetype="dashed", alpha=0.5) +
   geom_vline(xintercept = -1, linetype="dashed", alpha=0.5) +
-  annotate("text", x = -10, y = 30, label = "Control", family = "GillSans") +
-  annotate("text", x = 10, y = 30, label = "Cancer", family = "GillSans") + 
+  annotate("text", x = -15, y = 30, label = "Control", family = "GillSans") +
+  annotate("text", x = 15, y = 30, label = "Cancer", family = "GillSans") + 
   geom_point(aes(color = cc), alpha = 3/5) +
   scale_color_manual(name = "", values = colors_fc) +
   xlim(-30, 30)
@@ -74,21 +74,38 @@ p <- p + theme(legend.position = "top",
   axis.text.x = element_text(angle = 0))
 
 ggsave(p, filename = 'DESEQ2VOLCANO.png', 
-  path = path, width = 10, height = 4, device = png, dpi = 300)
+  path = path, width = 10, height = 3.5, device = png, dpi = 300)
 
 # AS DENSITY
 
-RES.P %>%
+p2 <- RES.P %>%
   # filter(log2FoldChange < 0) %>%
   dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
   ggplot(aes(x = log2(baseMean), y = log2FoldChange)) +
-  facet_wrap(~ sampleB, scales = "free") +
-  # geom_point() +
-  stat_density_2d(
-    geom = "raster",
-    aes(fill = after_stat(density)),
-    contour = FALSE
-  ) +
-  scale_fill_viridis_c()
-  # geom_density_2d_filled(alpha = 0.5) +
-  # geom_density_2d(linewidth = 0.25, colour = "black")
+  facet_grid(~ sampleB, scales = "free") +
+  geom_point(aes(alpha = -log10(padj)), color = 'grey') +
+  # stat_density_2d(aes(fill = ..level..), geom = "polygon") +
+  # scale_fill_viridis_c() +
+  geom_density_2d(aes(color = ..level..), linewidth = 0.5) +
+  scale_color_viridis_c() +
+  # stat_density_2d(
+  #   geom = "raster",
+  #   aes(fill = after_stat(density)),
+  #   contour = FALSE
+  # ) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = "top",
+    panel.border = element_blank(),
+    strip.background = element_rect(fill = 'grey89', color = 'white'),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    # panel.grid.major = element_blank(),
+    panel.grid = element_blank(),
+    strip.background.y = element_blank(),
+    axis.text.x = element_text(angle = 0))
+
+# p2
+
+ggsave(p2, filename = 'DESEQ2DENSITY.png', 
+  path = path, width = 7, height = 3.5, device = png, dpi = 300)
+

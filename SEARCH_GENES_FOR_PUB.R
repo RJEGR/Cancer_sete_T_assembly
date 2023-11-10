@@ -60,6 +60,9 @@ swissdf %>%
 ANNOT <- swissdf %>% 
   filter(uniprot %in% WHICH_PROTEINS) 
 
+# CREATE HEATMAP
+
+write_rds(ANNOT, file = paste0(path, "/WHICH_PROTEINS.rds"))
 
 # BIND TO DE RESULTS
 
