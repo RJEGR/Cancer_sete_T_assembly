@@ -101,6 +101,20 @@ write_excel_csv(OUT1, file = paste0(path, "/CONTRAST_C_GRADOS_HISTOLOGICOS.xls")
 
 write_excel_csv(OUT2, file = paste0(path, "/CONTRAST_D_METASTASIS_NO_METASTASIS.xls"))
 
+OUT1 <- read_tsv(paste0(path, "/CONTRAST_C_GRADOS_HISTOLOGICOS.xls"), )
+OUT2 <- read_csv(paste0(path, "/CONTRAST_D_METASTASIS_NO_METASTASIS.xls"), )
+
+# OUT1 %>%
+#   filter(padj < 0.05) %>%
+#   distinct(transcript_id)
+# 
+# OUT2 %>%
+#   filter(padj < 0.05) %>%
+#   distinct(transcript_id)
+
+
+# read_rds(paste0(path, "CONTRAST_C_AND_D_FOR_PUB.rds"))
+
 bind_samples <- function(x) {
   x <- unique(x)
   x <- paste(x, collapse = ' and ')
