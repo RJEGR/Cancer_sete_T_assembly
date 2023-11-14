@@ -109,3 +109,50 @@ p2 <- RES.P %>%
 ggsave(p2, filename = 'DESEQ2DENSITY.png', 
   path = path, width = 7, height = 3.5, device = png, dpi = 300)
 
+# ONLY CANCER ASSOCIATED
+
+path <- '~/Documents/DOCTORADO/human_cancer_dataset/annot/'
+
+ANNOT <- read_rds(paste0(path, "/WHICH_PROTEINS.rds"))
+
+
+colors_fc <- c("forestgreen",  "#4169E1", "red2", "grey89")
+
+colors_fc <- structure(colors_fc, names = c(fc, sigfc, pv, "NS"))
+
+ANNOT <- ANNOT %>% 
+  separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>%
+  distinct(transcript_id, uniprot) 
+
+.RES %>%
+  mutate(cc = ifelse(padj < 0.05, "p-value","")) %>%
+  left_join(ANNOT, by = "transcript_id") %>%
+  filter(transcript_id %in% query.ids) %>%
+  dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  ggplot(aes(x = log2(baseMean), y = log2FoldChange)) + 
+  geom_rect(
+    aes(ymin=-0, ymax = 4, xmin = 0, xmax = Inf), fill = 'grey89') +
+  geom_rect(
+    aes(ymin=-0, ymax = -4, xmin = 0, xmax = Inf), fill = '#D4DBC2') +
+  annotate("text", x = 3, y = 3, label = "Control", family = "GillSans", color = "grey40") +
+  annotate("text", x = 3, y = -3, label = "Cancer", family = "GillSans",  color = "grey40") +
+  ggrepel::geom_text_repel(aes(color = cc, label = uniprot), size = 2, family = "GillSans", max.overlaps = 50) +
+  # geom_text(aes(color = cc, label = uniprot), family = "GillSans", size = 3) +
+  facet_grid(~ sampleB) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  # geom_abline(slope = 0, intercept = -1, linetype="dashed", alpha=0.5) +
+  # geom_abline(slope = 0, intercept = 1, linetype="dashed", alpha=0.5) +
+  # geom_vline(xintercept = 1, linetype="dashed", alpha=0.5) +
+  # geom_point(aes(color = cc), alpha = 3/5) +
+  scale_color_manual(name = "", values = c("grey20","red")) +
+  ylim(-4, 4) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = "none",
+    panel.border = element_blank(),
+    strip.background = element_rect(fill = 'grey89', color = 'white'),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 0)) -> p
+
+ggsave(p, filename = 'SEARCH_GENES_FOR_PUB.png', path = path, width = 10, height = 3.5, device = png, dpi = 300)
