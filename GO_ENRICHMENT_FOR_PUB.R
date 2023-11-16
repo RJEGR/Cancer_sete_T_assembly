@@ -31,6 +31,34 @@ UPSETDF <- RES.P %>%
   group_by(transcript_id) %>%
   summarise(across(sampleB, .fns = list), n = n())
 
+# WRITE UPSET
+
+path <- "~/Documents/DOCTORADO/human_cancer_dataset/"
+
+file_name <- "ALL_MULTIPLE_CONTRAST_Annot_count_down_up_genes_LOGFC_1.xlsx"
+
+file_name <- paste0(path, file_name)
+
+ANNOT <- read_excel(file_name) %>% 
+  separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>% 
+  dplyr::select(transcript_id, uniprot, protein_name) %>%
+  distinct()
+
+recode_to <- c(`METASTASIS` = "Metastasis", `NO METASTASIS`= "No metastasis",
+  `Grado I` = "Stage I", `Grado II` = "Stage II", `Grado III` = "Stage III")
+
+
+WRITEUPBSET <- RES.P %>% 
+  filter(log2FoldChange < 0 ) %>% # ONLY UP-EXPRESSED IN CANCER SAMPLES (i.e. DOWN-EXP. IN Ctrl)
+  dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  group_by(transcript_id) %>%
+  summarise(across(sampleB, .fns = paste_go), n = n()) %>%
+  left_join(ANNOT, by = "transcript_id")
+  
+write_tsv(WRITEUPBSET, file = paste0(path, "UPSET.tsv"))
+
+RES.P %>% filter(log2FoldChange < 0 ) %>% count(sampleB) %>% view()
+
 # Levels <- RES.P %>% distinct(sampleB) %>% pull()
 
 UPSETDF %>%
