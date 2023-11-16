@@ -27,6 +27,7 @@ keep <- rownames(.raw_count) %in% query.ids
 
 dim(COUNT <- as(.raw_count[keep,], "matrix") )
 
+
 # THEN
 
 MTD <- readr::read_tsv(mtd_f) %>% mutate_all(list(~ str_replace(., "SIN_CANCER", "Control")))
@@ -293,4 +294,93 @@ DF %>%
     axis.text.y = element_text(angle = 0, size = 7),
     axis.text.x = element_text(angle = 0, size = 10))
 
+# sample-heatmap
+
+COUNT <- DESeq2::vst(round(COUNT))
+
+# CLUSTERING SAMPLES ====
+
+dim(COUNT <- as(.raw_count, "matrix") )
+
+sample_cor = cor(COUNT, method='pearson', use='pairwise.complete.obs')
+
+sample_dist = dist(sample_cor, method='euclidean')
+
+hc_samples = hclust(sample_dist, method='complete')
+
+hc_order <- hc_samples$labels[hc_samples$order]
+
+# heatmap(sample_cor, col = cm.colors(12))
+
+sample_cor %>% 
+  as_tibble(rownames = 'LIBRARY_ID') %>%
+  pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
+  left_join(MTD) %>% 
+  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_order)) -> sample_cor_long
+
+library(ggh4x)
+
+recode_to_c <- c(  `Control` = "(A) Control",
+  `METASTASIS` = "Metastasis", `NO METASTASIS`= "No metastasis",
+  `Grado I` = "(B) Stage I", `Grado II` = "(C) Stage II", `Grado III` = "(D) Stage III",
+  `Indiferenciado` = NA)
+
+recode_to_d <- c(  `Control` = "",
+  `METASTASIS` = "Metastasis", `NO METASTASIS`= "No metastasis",
+  `Indiferenciado` = NA)
+
+sample_cor_long %>%
+  # dplyr::mutate(CONTRASTE_C = dplyr::recode_factor(CONTRASTE_C, !!!recode_to_c)) %>%
+  # dplyr::mutate(CONTRASTE_D = dplyr::recode_factor(CONTRASTE_D, !!!recode_to_d)) %>%
+  ggplot(aes(x = LIBRARY_ID, y = name, fill = cor)) + 
+  # geom_tile(color = 'white', size = 0.2) +
+  geom_tile(color = 'white') +
+  # ggh4x::facet_nested( ~ CONTRASTE_D+CONTRASTE_C, nest_line = F, scales = "free", space = "free") +
+  # geom_text(aes(label = cor), color = 'white') +
+  scale_fill_viridis_c(option = "B", name = "", direction = -1) +
+  # scale_x_discrete(position = 'top') +
+  # scale_y_discrete(position = "right") +
+  ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top', labels = NULL) +
+  ggh4x::scale_y_dendrogram(hclust = hc_samples, position = "left") +
+  ggh4x::scale_y_dendrogram(hclust = hc_samples, position = "left", labels = NULL) +
+  guides(y.sec = guide_axis_manual(labels = hc_order, label_size = 4.5),
+         x.sec = guide_axis_manual(labels = hc_order, label_size = 4.5)) +
+  guides(fill = guide_legend(title = "", nrow = 1)) +
+  labs(x = '', y = '') +
+  theme_bw(base_family = "GillSans", base_size = 10) +
+  theme(legend.position = 'top',
+    axis.text.x = element_text(angle = 90,
+      hjust = -0.15, vjust = 1)) -> p
+
+p <- p + theme(strip.background = element_rect(fill = 'white', color = 'white'),
+  panel.border = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.ticks.x = element_blank(),
+  panel.grid.major = element_blank())
+
+
+
+ggsave(p, filename = 'SAMPLE_HEATMAP_FOR_PUB.png', path = path, width = 5, height = 5, device = png, dpi = 300)
+# OR BY GROUP
+
+COUNT %>% 
+  as_tibble(rownames = 'protein_name') %>%
+  pivot_longer(-protein_name, names_to = "LIBRARY_ID") %>%
+  left_join(MTD) -> COUNT_LONG
+
+COUNT_LONG %>%
+  group_by(CONTRASTE_C, CONTRASTE_D, protein_name) %>%
+  summarise(value = sum(value)) -> COUNT_LONG
+
+COUNT_LONG %>%
+  pivot_wider(names_from = CONTRASTE_C, values_from = value, values_fill = 0) %>%
+  group_by(protein_name) %>%
+  # rstatix::cor_test(`Grado I`, `Grado II`)
+
+# library(rstatix)
+# 
+# sample_cor %>%
+#   cor_reorder() %>%
+#   # pull_lower_triangle() %>%
+#   cor_plot(label = F)
 
