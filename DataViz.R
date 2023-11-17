@@ -148,10 +148,10 @@ read_tsv <- function(f) {
   g <- gsub(".tsv", "",basename(f))
   g <- gsub("full_table_transcripts_*", "", g)
   g <- gsub("_odb9", "", g)
-  g <- str_to_title(g)
+  g <- stringr::str_to_title(g)
   
   df <- read.delim(f, comment.char = "#", sep = "\t", header = F)
-  df %>% as_tibble(df) %>% mutate(g = g)
+  df %>% as_tibble() %>% mutate(g = g)
   #return(df)
 }
 
@@ -168,22 +168,23 @@ head(df <- do.call(rbind, df))
 names(df) <- c("Busco_id",	"Status",	"Query_seq_id",	"Score",	"Length", "Db")
 
 df %>% 
+  filter(Db != "Bacteria") %>%
   group_by(Status, Db) %>% 
   tally() %>%
   group_by(Db) %>% mutate(pct = n / sum(n)) %>%
-  mutate(Status = factor(Status, levels = rev(names))) %>%
+  mutate(Status = factor(Status, levels = rev(names))) %>% # view()
   ggplot(aes(x = Db, y = pct, fill = Status)) +
   geom_col(position = position_stack(reverse = TRUE)) +
   scale_y_continuous(labels = scales::percent_format(scale = 100)) +
   labs(y = "% BUSCOs", x = "", caption = 'Human cancer reference-guide transcriptome assembly') +
   coord_flip() +
   scale_fill_manual("", values = col) +
-  theme_classic(base_size = 14, base_family = "GillSans") +
+  theme_classic(base_size = 12, base_family = "GillSans") +
   theme(legend.position = 'top') -> ps
 
 out_path <- '~/Documents/DOCTORADO/human_cancer_dataset/'
 
-ggsave(ps, filename = "BUSCO.png", path = out_path, height = 3)
+ggsave(ps, filename = "BUSCO.png", path = out_path, height = 3, width = 5)
 
 
 df %>% 
