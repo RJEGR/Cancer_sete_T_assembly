@@ -61,6 +61,13 @@ RES.P %>% filter(log2FoldChange < 0 ) %>% count(sampleB) %>% view()
 
 # Levels <- RES.P %>% distinct(sampleB) %>% pull()
 
+recode_to
+
+
+panel.point.color.fill <- structure(
+  c("#CE3722", "#DC8F81", "#EBE8E1", "#B0B893", "#768947"), names = recode_to)
+
+
 UPSETDF %>%
   mutate(col = ifelse(n == 1, "A", "B")) %>%
   ggplot(aes(x = sampleB, fill = col)) + # , fill = SIGN
@@ -69,12 +76,14 @@ UPSETDF %>%
     position = position_dodge(width = 1), vjust = -0.5, family = "GillSans", size = 3.5) +
   scale_x_upset(order_by = "degree", reverse = F) +
   theme_bw(base_family = "GillSans") +
-  theme_combmatrix(combmatrix.panel.point.color.fill = "black",
+  theme_combmatrix(
+    combmatrix.label.make_space = F,
+    combmatrix.panel.point.color.fill = panel.point.color.fill,
     combmatrix.panel.line.size = 0, base_family = "GillSans", base_size = 16) +
   axis_combmatrix(levels = recode_to) +
   labs(x = '', y = 'Number of transcripts (up-expressed)') +
   # scale_color_manual("", values = col) +
-  scale_fill_manual("", values =  c("red", "black")) +
+  scale_fill_manual("", values =  c("black", "grey89")) +
   guides(fill = guide_legend(title = "", nrow = 1)) -> p1
 
 p1 <- p1 + theme(legend.position = "none",
@@ -194,24 +203,36 @@ OUT <- OUT %>% left_join(SEM, by = c("GO.ID" = "go"))
 
 write_rds(OUT, file = paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
 
+# write_tsv(OUT, file = paste0(path, "/GO_ENRICHMENT_FOR_PUB.tsv"))
+
+
 OUT <- read_rds(paste0(path, "/GO_ENRICHMENT_FOR_PUB.rds"))
 
 # PLOT
 
+recode_to2 <- c(`FiveCancer` = "F) All cancer samples")
+
+OUT %>% distinct(sampleB)
+
 OUT %>%
-  filter(p.adj.ks < 0.05) %>%
-  mutate(sampleB = factor(sampleB, levels = recode_to)) %>%
+  dplyr::mutate(sampleB = dplyr::recode(sampleB, !!!recode_to2)) %>% 
+  mutate(sampleB = factor(sampleB, levels= unique(sampleB))) %>%
+  # filter(p.adj.ks < 0.05) %>%
+  # mutate(sampleB = factor(sampleB, levels = recode_to)) %>%
   mutate(Top = ifelse(!Top %in% c(20, 50, 75, 100), "All", Top)) %>%
   mutate(Top = factor(as.character(Top), levels = c(20, 50, 75, 100, "All"))) %>%
-  ggplot(aes(x = Top, y = Term, fill = -log10(p.adj.ks))) +
+  group_by(sampleB) %>%
+  mutate(size = size / max(size)) %>%
+  filter(size > 0) %>%
+  ggplot(aes(x = Top, y = parentTerm, fill = size)) +
   geom_tile(color = 'white', linewidth = 0.2) +
-  facet_grid(parentTerm+sampleB ~., switch = "y", scales = "free_y") +
-  theme_bw(base_family = "GillSans", base_size = 12) +
+  facet_grid(~ sampleB, switch = "y", scales = "free_y") +
+  theme_bw(base_family = "GillSans", base_size = 10) +
   # guides(fill = "none") +
   labs(y = "Biological process (Up-expressed)", x = "Top Enrichment") +
-  scale_fill_viridis_c("-log10(padj)", option = "inferno", direction = -1) +
+  scale_fill_viridis_c("Enrichment ratio", option = "inferno", direction = -1) +
   theme(legend.position = "top",
-    axis.text.y.left = element_blank(),
+    # axis.text.y.left = element_blank(),
     axis.ticks.y.left = element_blank(),
     strip.background.x = element_rect(fill = 'grey89', color = 'white'),
     strip.text.y.left = element_text(angle = 0, size = 10, hjust = 1),
@@ -227,7 +248,7 @@ OUT %>%
     axis.text.x = element_text(angle = 90, size = 10)) -> p
 
 
-ggsave(p, filename = 'GO_ENRICHMENT_FOR_PUB2.png', path = path, width = 10, height = 12, device = png, dpi = 300)
+ggsave(p, filename = 'GO_ENRICHMENT_FOR_PUB2.png', path = path, width = 10, height = 7.5, device = png, dpi = 300)
 
 # BY BARS
 
@@ -235,8 +256,15 @@ ggsave(p, filename = 'GO_ENRICHMENT_FOR_PUB2.png', path = path, width = 10, heig
 
 # https://juliasilge.com/blog/reorder-within/
 
+recode_to2 <- c(`FiveCancer` = "F) All cancer samples")
+
+OUT %>% dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to2)) %>%
+  distinct(sampleB) %>% pull()
+
 OUT %>%
   filter(Top == 50) %>%
+  dplyr::mutate(sampleB = dplyr::recode(sampleB, !!!recode_to2)) %>% 
+  mutate(sampleB = factor(sampleB, levels= unique(sampleB))) %>%
   group_by(sampleB) %>%
   mutate(size = size / max(size)) %>%
   filter(size > 0) %>% 
@@ -267,5 +295,5 @@ OUT %>%
 # p2
   
 
-ggsave(p2, filename = 'GO_ENRICHMENT_FOR_PUB_BAR2.png', path = path, width = 10, height = 12, device = png, dpi = 300)
+ggsave(p2, filename = 'GO_ENRICHMENT_FOR_PUB_BAR2.png', path = path, width = 7, height = 12, device = png, dpi = 300)
 
