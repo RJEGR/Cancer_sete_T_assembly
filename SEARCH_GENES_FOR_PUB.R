@@ -76,11 +76,7 @@ library(readxl)
 
 print(DF1 <- read_excel(file_name) %>% filter(uniprot %in% WHICH_PROTEINS))
 
-# Solo 5 fueron significativas en la comparacion control vs muestras con Cancer
-
 # LOADING CONTRAST C AND D ONLY (W/O FILTERING)
-
-
 
 CNT_C <- rds_f_l[grepl("CONTRAST_C_DDS", rds_f_l)]
 CNT_D <- rds_f_l[grepl("CONTRAST_D_DDS", rds_f_l)]
@@ -93,16 +89,16 @@ CNT_D <- dds2res(CNT_D)
 
 write_rds(list(CNT_C, CNT_D), file = paste0(path, "CONTRAST_C_AND_D_FOR_PUB.rds"))
 
-OUT1 <- CNT_C %>% right_join(ANNOT) %>% select(-genus)
-OUT2 <- CNT_D %>% right_join(ANNOT) %>% select(-genus)
+OUT1 <- CNT_C %>% right_join(ANNOT, by = c("Name" = "transcript_id")) %>% select(-genus)
+OUT2 <- CNT_D %>% right_join(ANNOT, by = c("Name" = "transcript_id")) %>% select(-genus)
 
 
 write_excel_csv(OUT1, file = paste0(path, "/CONTRAST_C_GRADOS_HISTOLOGICOS.xls"))
 
 write_excel_csv(OUT2, file = paste0(path, "/CONTRAST_D_METASTASIS_NO_METASTASIS.xls"))
 
-OUT1 <- read_tsv(paste0(path, "/CONTRAST_C_GRADOS_HISTOLOGICOS.xls"), )
-OUT2 <- read_csv(paste0(path, "/CONTRAST_D_METASTASIS_NO_METASTASIS.xls"), )
+OUT1 <- read_csv(paste0(path, "/CONTRAST_C_GRADOS_HISTOLOGICOS.xls"))
+OUT2 <- read_csv(paste0(path, "/CONTRAST_D_METASTASIS_NO_METASTASIS.xls"))
 
 # OUT1 %>%
 #   filter(padj < 0.05) %>%
