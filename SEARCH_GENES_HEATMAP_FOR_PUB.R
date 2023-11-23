@@ -15,6 +15,15 @@ ANNOT <- read_rds(paste0(path, "/WHICH_PROTEINS.rds"))
 
 query.ids <- ANNOT %>% distinct(transcript_id) %>% pull()
 
+swiss_f <- list.files(path, pattern = 'Trinotate.xls.blastx.tsv',  full.names = TRUE)
+
+swissdf <- read_tsv(swiss_f) %>%
+  mutate(orf = ifelse(is.na(protein), FALSE, TRUE)) %>%
+  group_by(transcript, orf) %>%
+  filter(identity == max(identity)) %>%
+  ungroup() %>%
+  distinct(transcript, uniprot, identity, name, genus, orf) %>%
+  dplyr::rename("transcript_id"="transcript", "protein_name"="name")
 
 path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
 
@@ -24,10 +33,45 @@ mtd_f <- list.files(path, pattern = 'metadata.tsv',  full.names = TRUE)
 
 dim(.raw_count <- read.delim(count_f, sep = "\t", header = T, row.names = 1))
 
-.RES <- read_rds(paste0(path, "CONTRAST_C_AND_D_FOR_PUB.rds")) %>%
-  do.call(rbind, .) %>% filter(padj < 0.05 & abs(log2FoldChange) > 2)
+# LOAD ONLY UP-expresed in CANCER
 
-# query.ids <- .RES %>%  distinct(transcript_id) %>% pull()
+.RES <- read_rds(paste0(path, "CONTRAST_C_AND_D_FOR_PUB.rds")) %>%
+  do.call(rbind, .) %>% 
+  filter(padj < 0.05 & log2FoldChange < -20)
+
+# ACCORDING TO 
+
+# INCLUIDE ONLY EXCLUSIVELY W/ANNOT
+
+nrow(P.RES.ANNOT <- .RES %>% count(transcript_id) %>% 
+  filter(n == 1) %>% left_join(swissdf) %>%
+  select(-n))
+
+SAVEDF <- .RES%>%
+  right_join(P.RES.ANNOT) %>%
+  separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>%
+  select(-genus)
+  
+
+SAVEDF %>%  
+  ggplot(aes(x = sampleB, y = uniprot, fill = log2FoldChange, color = log2FoldChange)) + 
+  geom_tile( linewidth = 0.2)
+
+write_tsv(SAVEDF, paste0(path, "EXCLUSIVE_CONTRAST_C_AND_D_FOR_PUB.tsv"))
+
+
+# MUST MATCH 1392 exlcusive transcripts id
+
+nrow(P.RES.ANNOT <- P.RES.ANNOT %>% drop_na(protein_name)) # w/ 1224 annot
+
+# BIND w/ CANCER TRANSCRIPTS
+
+P.RES.ANNOT <- rbind(P.RES.ANNOT, ANNOT) %>% 
+  separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>%
+  distinct(transcript_id, protein_name, uniprot)
+
+
+str(query.ids <- P.RES.ANNOT %>%  distinct(transcript_id) %>% pull()) # 1336
 
 sum(keep <- rownames(.raw_count) %in% query.ids)
 
@@ -40,6 +84,8 @@ MTD <- readr::read_tsv(mtd_f) %>% mutate_all(list(~ str_replace(., "SIN_CANCER",
 keep <- MTD$LIBRARY_ID[!MTD$CONTRASTE_C %in% "Indiferenciado"]
 
 dim(COUNT <- as(COUNT[,keep], "matrix") )
+
+# GO TO COLLAPSED GENES HEATMAP
 
 # clustering
 
@@ -133,8 +179,10 @@ ggsave(P, filename = 'HEATMAP_FOR_PUB_CONTRAST_C.png', path = path, width = 10, 
 
 # (OPTIONAL) COLLAPSE BY 
 
+P.RES.ANNOT %>% group_by(protein_name)
+
 raw_count <- COUNT %>% as_tibble(rownames = 'transcript_id') %>%
-  left_join(distinct(ANNOT, transcript_id, protein_name)) %>%
+  left_join(distinct(P.RES.ANNOT, transcript_id, protein_name)) %>%
   group_by(protein_name) %>%
   summarise_at(vars(colnames(COUNT)), sum)
 
@@ -156,7 +204,9 @@ COUNT <- DESeq2::varianceStabilizingTransformation(round(COUNT))
 
 # CLUSTERING SAMPLES
 
-sample_dist = dist(t(COUNT), method='euclidean')
+sample_cor = cor(COUNT, method='pearson', use='pairwise.complete.obs')
+
+sample_dist = dist(sample_cor, method='euclidean')
 
 hc_samples = hclust(sample_dist, method='complete')
 
@@ -170,13 +220,16 @@ hc_genes = hclust(genes_dist, method='complete')
 
 genes_order <- hc_genes$labels[hc_genes$order]
 
-sample_cor %>% 
-  as_tibble(rownames = 'LIBRARY_ID') %>%
-  pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
-  left_join(MTD) %>% 
-  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_order)) %>%
-  mutate(name = factor(name, levels = hc_order))-> sample_cor_long
+# sample_cor %>% 
+#   as_tibble(rownames = 'LIBRARY_ID') %>%
+#   pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
+#   left_join(MTD) %>% 
+#   mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_order)) %>%
+#   mutate(name = factor(name, levels = hc_order))-> sample_cor_long
+# 
 
+# heatmap(COUNT)
+dim(COUNT)
 
 COUNT %>% 
   as_tibble(rownames = 'protein_name') %>%
@@ -195,9 +248,7 @@ recode_to_d <- c(  `Control` = "",
   `METASTASIS` = "Metastasis", `NO METASTASIS`= "No metastasis",
   `Indiferenciado` = NA)
 
-
-
-DFANNOT <- ANNOT %>% 
+DFANNOT <- P.RES.ANNOT %>% 
   separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>%
   distinct(protein_name, uniprot)
 
@@ -208,15 +259,20 @@ labels <- DFANNOT %>%
 
 
 P <- COUNT_LONG %>%
+  filter(value > 1) %>%
   mutate(WHICH_CONTRAST = CONTRASTE_D) %>% # USE CONTRASTE_C OR CONTRASTE_D
   dplyr::mutate(CONTRASTE_C = dplyr::recode_factor(CONTRASTE_C, !!!recode_to_c)) %>%
   dplyr::mutate(CONTRASTE_D = dplyr::recode_factor(CONTRASTE_D, !!!recode_to_d)) %>%
-  drop_na(WHICH_CONTRAST) %>%
-  ggplot(aes(x = LIBRARY_ID, y = protein_name, fill = log2(value))) + 
-  geom_tile(color = 'white', linewidth = 0.2) +
-  scale_fill_viridis_c(option = "B", 
-    name = "Log2(Count)", direction = -1, na.value = "white") +
-  # ggh4x::facet_nested( ~ CONTRASTE_D+CONTRASTE_C, nest_line = F, scales = "free", space = "free") +
+  mutate(value = log2(value + 1))%>%
+  ggplot(aes(x = LIBRARY_ID, y = protein_name, fill = value, color = value)) + 
+  geom_tile( linewidth = 0.2) +
+  ggsci::scale_fill_material(name = "Log2(Count)", "blue-grey") +
+  ggsci::scale_color_material(name = "Log2(Count)", "blue-grey") +
+  # scale_fill_viridis_c(option = "B", 
+  #   name = "Log2(Count)", direction = -1, na.value = "white") +
+  # scale_color_viridis_c(option = "B", 
+  #   name = "Log2(Count)", direction = -1, na.value = "white") +
+  # # ggh4x::facet_nested( ~ CONTRASTE_D+CONTRASTE_C, nest_line = F, scales = "free", space = "free") +
   # scale_x_discrete(position = 'top') +
   # ggh4x::scale_x_dendrogram(hclust = hc_samples, position = 'top') +
   ggh4x::scale_y_dendrogram(hclust = hc_genes, position = "left", labels = NULL) +
@@ -254,7 +310,7 @@ recode_to <- c(  `Control` = "Control",
 
 TOPDF <- COUNT_LONG %>%
   mutate(CONTRAST = CONTRASTE_C) %>%
-  distinct(LIBRARY_ID, CONTRAST, CONTRASTE_D) %>%
+  distinct(LIBRARY_ID, CONTRAST, CONTRASTE_D, EDAD) %>%
   dplyr::mutate(CONTRAST = dplyr::recode_factor(CONTRAST, !!!recode_to)) %>%
   mutate(label = ifelse(CONTRASTE_D %in% "METASTASIS", "*", "")) %>%
   mutate(y = 1)
@@ -285,7 +341,7 @@ library(patchwork)
 psave <- topplot/ plot_spacer()/P + plot_layout(heights = c(0.6, -0.5, 5))
 
 
-ggsave(psave, filename = 'HEATMAP_FOR_PUB_CONTRAST_C_D2.png', path = path, width = 10, height = 4.5, device = png, dpi = 300)
+ggsave(psave, filename = 'HEATMAP_FOR_PUB_CONTRAST_C_D3.png', path = path, width = 10, height = 5.5, device = png, dpi = 300)
 
 
 # ggsave(P, filename = 'HEATMAP_FOR_PUB_CONTRAST_C_D.png', path = path, width = 12, height = 4.5, device = png, dpi = 300)
@@ -394,13 +450,13 @@ hc_order <- hc_samples$labels[hc_samples$order]
 
 # heatmap(sample_cor, col = cm.colors(12))
 
-sample_cor %>% 
-  as_tibble(rownames = 'LIBRARY_ID') %>%
-  pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
-  left_join(MTD) %>% 
-  mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_order)) %>%
-  mutate(name = factor(name, levels = hc_order))->     frame.colour = "black", frame.linewidth = 0.5,
-    label.theme = element_text(family = "GillSans", size = 7))) 
+# sample_cor %>% 
+#   as_tibble(rownames = 'LIBRARY_ID') %>%
+#   pivot_longer(cols = colnames(sample_cor), values_to = 'cor') %>%
+#   left_join(MTD) %>% 
+#   mutate(LIBRARY_ID = factor(LIBRARY_ID, levels = hc_order)) %>%
+#   mutate(name = factor(name, levels = hc_order))->     frame.colour = "black", frame.linewidth = 0.5,
+#     label.theme = element_text(family = "GillSans", size = 7)))) 
 
 library(ggh4x)
 
