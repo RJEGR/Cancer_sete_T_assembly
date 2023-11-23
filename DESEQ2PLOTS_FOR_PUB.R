@@ -16,6 +16,11 @@ RES.P <- .RES %>% filter(padj < 0.05 & abs(log2FoldChange) > 2)
 
 RES.P %>% group_by(sampleB) %>% dplyr::count()
 
+# RES.P %>%
+#   ggplot(aes(log10(baseMeanB), log2FoldChange)) +
+#   facet_grid(~ sampleB) +
+#   geom_point()
+
 URL <- "https://raw.githubusercontent.com/RJEGR/Small-RNASeq-data-analysis/master/FUNCTIONS.R"
 
 source(URL)
@@ -189,3 +194,33 @@ p2 +
     aes(ymin=1, ymax = 30, xmin = 1, xmax = Inf), fill = '#DADADA', alpha = 0.02) +
   ggrepel::geom_text_repel(data = SUBSET_RES, aes(label = uniprot), 
     size = 2, family = "GillSans", max.overlaps = 100) 
+
+# HEATMAP OF 
+# CONTINUE w/ SEARCH_GENES_HEATMAP_FOR_PUB 
+
+RES.P %>%
+  filter(log2FoldChange < -2) %>%
+  dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  ggplot(aes(log2FoldChange, fill = sampleB)) +
+  geom_histogram(color = "grey20") +
+  facet_grid(~ sampleB) +
+  # stat_ecdf() +
+  # xlim(c(-30, -2)) +
+  labs(y = "Number of transcripts (Up-expressed") +
+  see::scale_color_pizza(name = "", reverse = T) +
+  see::scale_fill_pizza(name = "", reverse = T) +
+  theme_bw(base_family = "GillSans", base_size = 10) +
+  see::scale_color_pizza(name = "", reverse = T) +
+  theme_bw(base_family = "GillSans", base_size = 12) +
+  theme(legend.position = "top",
+    panel.border = element_blank(),
+    strip.background = element_rect(fill = 'grey89', color = 'white'),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    # panel.grid.major = element_blank(),
+    panel.grid = element_blank(),
+    strip.background.y = element_blank(),
+    axis.text.x = element_text(angle = 0)) -> p
+
+
+ggsave(p, filename = 'HISTOGRAM_UPEXPRESSED_GENES_FOR_PUB.png', path = path, width = 10, height = 3.5, device = png, dpi = 300)
