@@ -130,14 +130,21 @@ OUT1 %>%
   summarise(n = n(), across(sampleB, .fns = bind_samples), .groups = "drop_last")  %>%
   view()
 
+recode_to2 <- c(  `Control` = "Control",
+  `METASTASIS` = "Metastasis", `NO METASTASIS`= "No metastasis",
+  `Grado I` = "Stage I", `Grado II` = "Stage II", `Grado III` = "Stage III", 
+  `Indiferenciado` = NA)
   
-OUT2 %>% 
+rbind(OUT1, OUT2) %>% 
   filter(padj < 0.05) %>%
+  mutate(log2FC = log2FoldChange) %>%
   mutate(log2FoldChange = sign(log2FoldChange)) %>%
   dplyr::mutate(log2FoldChange = recode_factor(log2FoldChange, !!!recode_to)) %>%
+  dplyr::mutate(sampleB = recode_factor(sampleB, !!!recode_to2)) %>%
   # distinct(uniprot, sampleB) %>% 
   # right_join(ANNOT) %>%
   drop_na(sampleB) %>% 
+  separate(uniprot, into = c("uniprot", "sp"), sep = "_") %>% view()
   group_by(uniprot, log2FoldChange) %>%
   summarise(n = n(), across(sampleB, .fns = bind_samples), .groups = "drop_last") %>%
   view()
