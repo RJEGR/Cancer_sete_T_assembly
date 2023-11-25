@@ -203,7 +203,7 @@ RES.P %>%
   dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
   ggplot(aes(log2FoldChange, fill = sampleB)) +
   geom_histogram(color = "grey20") +
-  facet_grid(~ sampleB) +
+  facet_grid(~ sampleB, scales = "free_x") +
   # stat_ecdf() +
   # xlim(c(-30, -2)) +
   labs(y = "Number of transcripts (Up-expressed") +
