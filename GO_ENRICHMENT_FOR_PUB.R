@@ -32,6 +32,7 @@ UPSETDF <- RES.P %>%
   summarise(across(sampleB, .fns = list), n = n())
 
 # WRITE UPSET
+library(readxl)
 
 path <- "~/Documents/DOCTORADO/human_cancer_dataset/"
 
@@ -57,11 +58,75 @@ WRITEUPBSET <- RES.P %>%
   
 write_tsv(WRITEUPBSET, file = paste0(path, "UPSET.tsv"))
 
-RES.P %>% filter(log2FoldChange < 0 ) %>% count(sampleB) %>% view()
+RES.P %>% filter(log2FoldChange < 0 ) %>% dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>% count(sampleB) %>% view()
+
+RES.P %>% filter(log2FoldChange < 0 ) %>% dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  left_join(ANNOT, by = "transcript_id") %>%
+  write_tsv(file = paste0(path, "DESEQ2UPSET.tsv"))
+
+
+# BARPLOT
+recode_to <- c(`METASTASIS` = "(A) Metastasis", `NO METASTASIS`= "(B) No metastasis",
+  `Grado I` = "(C) Stage I", `Grado II` = "(D) Stage II", `Grado III` = "(E) Stage III")
+
+RES.P %>% 
+  filter(log2FoldChange < 0 ) %>% 
+  dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  left_join(ANNOT, by = "transcript_id") %>%
+  right_join(select(WRITEUPBSET, transcript_id, n)) %>% 
+  # filter(n == 1) %>% #count(sampleB)
+  drop_na(uniprot) %>% # count(sampleB) 
+  group_by(sampleB) %>%
+  arrange(log2FoldChange, .by_group = T) %>%
+  slice_head(n = 10) %>% # view()
+  mutate(Label = uniprot, row_number = row_number(Label)) %>%
+  mutate(Label = paste0(Label, " (", protein_name, ")")) %>%
+  mutate(row_number = paste(row_number, sampleB, sep = ":")) %>%
+  mutate(Label = factor(paste(Label, row_number, sep = "__"),
+    levels = rev(paste(Label, row_number, sep = "__")))) %>%
+  mutate(star = ifelse(padj <.001, "***", 
+    ifelse(padj <.01, "**",
+      ifelse(padj <.05, "*", "")))) %>%
+  mutate(SIGN = sign(log2FoldChange)) %>%
+  mutate(
+    ymin = (abs(log2FoldChange) - lfcSE) * sign(log2FoldChange),
+    ymax = (abs(log2FoldChange) + lfcSE) * sign(log2FoldChange),
+    y_star = ymax + (0.15+lfcSE)* sign(log2FoldChange)) %>% 
+  ggplot(aes(x = Label, y = log2FoldChange)) + 
+  facet_grid(sampleB~ ., scales = "free") +
+  scale_x_discrete(labels = function(x) gsub("__.+$", "", x)) +
+  see::scale_color_pizza(name = "", reverse = T) +
+  see::scale_fill_pizza(name = "", reverse = T) +
+  geom_col(width = 0.5,
+    position = position_stack(reverse = T), color = "black", fill = "grey89") +
+  coord_flip() +
+  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.25,
+    position = position_identity(), color = "black") + 
+  geom_text(aes(y = y_star, label=star), 
+    vjust=  .7, color="black", position = position_identity(), family = "GillSans", size = 1.5) +
+  # guides(fill = "none") +
+  labs(x = NULL, y = "Log fold change") +
+  guides(fill = guide_legend(title = "", nrow = 5, reverse = T)) +
+  theme_bw(base_family = "GillSans", base_size = 10) +
+  theme(
+    # legend.position = guide_legend(reverse = F), 
+    panel.border = element_blank(),
+    plot.title = element_text(hjust = 0),
+    plot.caption = element_text(hjust = 0),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    # strip.background.y = element_blank(),
+    # axis.text.y.right = element_text(angle = 0, hjust = 1, vjust = 0, size = 2.5),
+    axis.text.y = element_text(angle = 0, size = 5),
+    axis.text.x = element_text(angle = 0)) +
+  theme(strip.background = element_rect(fill = 'grey89', color = 'white')) -> P
+
+
+P
+ggsave(P, filename = 'DESEQTOP2BARPLOT.tiff', path = path, width = 4, height = 5, device = tiff, dpi = 300)
 
 # Levels <- RES.P %>% distinct(sampleB) %>% pull()
-
-recode_to
 
 
 panel.point.color.fill <- structure(
