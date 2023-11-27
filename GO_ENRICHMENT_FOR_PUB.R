@@ -14,7 +14,7 @@ path <- '~/Documents/DOCTORADO/human_cancer_dataset/DiffExp/'
 
 .RES <- do.call(rbind, .RES)
 
-RES.P <- .RES %>% filter(padj < 0.05 & abs(log2FoldChange) > 2)
+RES.P <- .RES %>% filter(padj < 0.05 & log2FoldChange < -2)
 
 RES.P %>% group_by(sampleB) %>% dplyr::count()
 
@@ -74,7 +74,7 @@ RES.P %>%
   dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
   left_join(ANNOT, by = "transcript_id") %>%
   right_join(select(WRITEUPBSET, transcript_id, n)) %>% 
-  # filter(n == 1) %>% #count(sampleB)
+  # filter(n == 1) %>% count(sampleB)
   drop_na(uniprot) %>% # count(sampleB) 
   group_by(sampleB) %>%
   arrange(log2FoldChange, .by_group = T) %>%
@@ -125,6 +125,28 @@ RES.P %>%
 
 P
 ggsave(P, filename = 'DESEQTOP2BARPLOT.tiff', path = path, width = 4, height = 5, device = tiff, dpi = 300)
+
+# OR HEAT?
+
+RES.P %>% 
+  filter(log2FoldChange < 0 ) %>% 
+  dplyr::mutate(sampleB = dplyr::recode_factor(sampleB, !!!recode_to)) %>%
+  left_join(ANNOT, by = "transcript_id") %>%
+  right_join(select(WRITEUPBSET, transcript_id, n)) %>% 
+  # filter(n == 1) %>% count(sampleB)
+  drop_na(uniprot) %>% # count(sampleB) 
+  group_by(sampleB) %>%
+  arrange(log2FoldChange, .by_group = T) %>%
+  slice_head(n = 30) %>% # view()
+  mutate(Label = uniprot, row_number = row_number(Label)) %>%
+  mutate(Label = paste0(Label, " (", protein_name, ")")) %>%
+  mutate(row_number = paste(row_number, sampleB, sep = ":")) %>%
+  mutate(Label = factor(paste(Label, row_number, sep = "__"),
+    levels = rev(paste(Label, row_number, sep = "__")))) %>%
+  ggplot() + 
+  geom_tile(aes(fill = log2FoldChange, y = transcript_id, x = sampleB)) 
+  # facet_grid(sampleB~ ., scales = "free") 
+  # scale_y_discrete(labels = function(x) gsub("__.+$", "", x))
 
 # Levels <- RES.P %>% distinct(sampleB) %>% pull()
 
