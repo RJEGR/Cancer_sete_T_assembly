@@ -37,7 +37,7 @@ dim(.raw_count <- read.delim(count_f, sep = "\t", header = T, row.names = 1))
 
 .RES <- read_rds(paste0(path, "CONTRAST_C_AND_D_FOR_PUB.rds")) %>%
   do.call(rbind, .) %>% 
-  filter(padj < 0.05 & log2FoldChange < -20)
+  filter(padj < 0.05 & log2FoldChange < -2)
 
 # ACCORDING TO 
 
@@ -46,6 +46,17 @@ dim(.raw_count <- read.delim(count_f, sep = "\t", header = T, row.names = 1))
 nrow(P.RES.ANNOT <- .RES %>% count(transcript_id) %>% 
   filter(n == 1) %>% left_join(swissdf) %>%
   select(-n))
+
+# OR FILTER ONLY TOP 30 =====
+
+P.RES.ANNOT <- .RES %>% 
+  filter(log2FoldChange < 0 ) %>% 
+  left_join(swissdf) %>% 
+  drop_na(uniprot) %>% # count(sampleB) 
+  group_by(sampleB) %>%
+  arrange(log2FoldChange, .by_group = T) %>%
+  slice_head(n = 30) 
+
 
 SAVEDF <- .RES%>%
   right_join(P.RES.ANNOT) %>%
@@ -182,6 +193,7 @@ ggsave(P, filename = 'HEATMAP_FOR_PUB_CONTRAST_C.png', path = path, width = 10, 
 P.RES.ANNOT %>% group_by(protein_name)
 
 raw_count <- COUNT %>% as_tibble(rownames = 'transcript_id') %>%
+  # filter(transcript_id %in% query.ids) %>%
   left_join(distinct(P.RES.ANNOT, transcript_id, protein_name)) %>%
   group_by(protein_name) %>%
   summarise_at(vars(colnames(COUNT)), sum)
